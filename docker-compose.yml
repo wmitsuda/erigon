@@ -1,19 +1,22 @@
-version: '2.2'
+version: '3.7'
 
 services:
 
   erigon:
-    image: turbo-geth:latest
+    image: erigon:latest
     build: .
-    command: erigon --metrics --metrics.addr="0.0.0.0" --metrics.port="6060" --private.api.addr="0.0.0.0:9090" --pprof --pprof.addr="0.0.0.0" --pprof.port="6061"
+    command: erigon --metrics --metrics.addr="0.0.0.0" --metrics.port="6060" --private.api.addr="0.0.0.0:9091" --pprof --pprof.addr="0.0.0.0" --pprof.port="6061" --datadir /root/.local/share/erigon
     volumes:
       - ${XDG_DATA_HOME:-~/.local/share}/erigon:/root/.local/share/erigon
+    pid: host
     ports:
       - 30303:30303/tcp
       - 30303:30303/udp
+      - 9091:9091
 
   prometheus:
     image: prom/prometheus:v2.27.1
+    user: ${UID_GID:-1000:1000}
     command: --log.level=warn --config.file=/etc/prometheus/prometheus.yml --storage.tsdb.path=/prometheus --web.console.libraries=/usr/share/prometheus/console_libraries --web.console.templates=/usr/share/prometheus/consoles
     ports:
       - 9090:9090
@@ -23,6 +26,7 @@ services:
 
   grafana:
     image: grafana/grafana:8.0.3
+    user: ${UID_GID:-1000:1000}
     ports:
       - 3000:3000
     volumes:
@@ -32,8 +36,34 @@ services:
       - ${XDG_DATA_HOME:-~/.local/share}/erigon-grafana:/var/lib/grafana
 
   rpcdaemon:
-    image: turbo-geth:latest
-    command: rpcdaemon --private.api.addr="erigon:9090" --http.addr="0.0.0.0" --http.vhosts="*" --http.corsdomain="*" --http.api="eth,debug,net"
+    image: erigon:latest
+    command: rpcdaemon --chaindata /root/.local/share/chaindata --private.api.addr="erigon:9091" --http.addr="0.0.0.0" --http.vhosts="*" --http.corsdomain="*" --http.api="eth,debug,net,erigon,ots"
+    pid: host
     ports:
       - 8545:8545
+    volumes:
+      - ${XDG_DATA_HOME:-~/.local/share}/erigon/erigon/chaindata:/root/.local/share/chaindata
 
+  otterscan:
+    image: otterscan:latest
+    command: serve
+    build:
+      context: ./otterscan
+      dockerfile: ../Dockerfile.otterscan
+      args:
+        - VERSION_TAG
+        - REACT_APP_ERIGON_URL=http://rpcdaemon:8545
+    ports:
+      - 5000:5000
+
+  4bytes:
+    image: otterscan:latest
+    command: serve-4bytes
+    ports:
+      - 3001:3001
+
+  trustwallet-assets:
+    image: otterscan:latest
+    command: serve-trustwallet-assets
+    ports:
+      - 3002:3002

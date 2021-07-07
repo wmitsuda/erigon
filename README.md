@@ -221,11 +221,10 @@ For a details on the implementation status of each command, [see this table](./c
 
 ### Run all components by docker-compose
 
-Next command starts: Erigon on port 30303, rpcdaemon 8545, prometheus 9090, grafana 3000
+Next command starts: Erigon on port 30303, rpcdaemon 8545, prometheus 9090, grafana 3000, [otterscan](https://github.com/wmitsuda/otterscan) on port 5000
 
 ```
-docker-compose build
-XDG_DATA_HOME=/preferred/data/folder docker-compose up
+XDG_DATA_HOME=/preferred/data/folder ./run.sh
 ```
 
 ### Grafana dashboard

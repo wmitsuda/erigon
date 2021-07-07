@@ -1,0 +1,11 @@
+FROM node:12
+ARG VERSION_TAG
+ARG REACT_APP_ERIGON_URL
+
+RUN git clone --recurse-submodules https://github.com/mariuspod/otterscan.git
+WORKDIR otterscan
+RUN git checkout ${VERSION_TAG}-otterscan
+RUN npm install
+RUN npm run build
+
+ENTRYPOINT ["npm", "run"]
