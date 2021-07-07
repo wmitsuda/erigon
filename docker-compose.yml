@@ -37,12 +37,12 @@ services:
 
   rpcdaemon:
     image: erigon:latest
-    command: rpcdaemon --chaindata /root/.local/share/chaindata --private.api.addr="erigon:9091" --http.addr="0.0.0.0" --http.vhosts="*" --http.corsdomain="*" --http.api="eth,debug,net,erigon,ots"
+    command: rpcdaemon --datadir /root/.local/share/erigon --private.api.addr="erigon:9091" --http.addr="0.0.0.0" --http.vhosts="*" --http.corsdomain="*" --http.api="eth,debug,net,erigon,ots"
     pid: host
     ports:
       - 8545:8545
     volumes:
-      - ${XDG_DATA_HOME:-~/.local/share}/erigon/erigon/chaindata:/root/.local/share/chaindata
+      - ${XDG_DATA_HOME:-~/.local/share}/erigon:/root/.local/share/erigon
 
   otterscan:
     image: otterscan:latest
