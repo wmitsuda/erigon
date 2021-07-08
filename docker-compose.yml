@@ -45,25 +45,6 @@ services:
       - ${XDG_DATA_HOME:-~/.local/share}/erigon:/root/.local/share/erigon
 
   otterscan:
-    image: otterscan:latest
-    command: serve
-    build:
-      context: ./otterscan
-      dockerfile: ../Dockerfile.otterscan
-      args:
-        - VERSION_TAG
-        - REACT_APP_ERIGON_URL=http://rpcdaemon:8545
+    image: otterscan:docker-experiments
     ports:
-      - 5000:5000
-
-  4bytes:
-    image: otterscan:latest
-    command: serve-4bytes
-    ports:
-      - 3001:3001
-
-  trustwallet-assets:
-    image: otterscan:latest
-    command: serve-trustwallet-assets
-    ports:
-      - 3002:3002
+      - 5000:80
