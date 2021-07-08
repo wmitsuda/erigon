@@ -45,6 +45,6 @@ services:
       - ${XDG_DATA_HOME:-~/.local/share}/erigon:/root/.local/share/erigon
 
   otterscan:
-    image: otterscan:docker-experiments
+    image: ghcr.io/mariuspod/otterscan:feature-docker-experiments
     ports:
       - 5000:80
