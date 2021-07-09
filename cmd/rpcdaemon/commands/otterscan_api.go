@@ -19,7 +19,6 @@ import (
 	"github.com/ledgerwatch/erigon/log"
 	otterscan "github.com/ledgerwatch/erigon/otterscan/transactions"
 	"github.com/ledgerwatch/erigon/params"
-	"github.com/ledgerwatch/erigon/turbo/adapter"
 	"github.com/ledgerwatch/erigon/turbo/shards"
 	"github.com/ledgerwatch/erigon/turbo/transactions"
 	"sync"
@@ -69,7 +68,10 @@ func (api *OtterscanAPIImpl) GetTransactionTransfers(ctx context.Context, hash c
 	if txn == nil {
 		return nil, fmt.Errorf("transaction %#x not found", hash)
 	}
-	getter := adapter.NewBlockGetter(tx)
+	block, err := rawdb.ReadBlockByHash(tx, blockHash)
+	if err != nil {
+		return nil, err
+	}
 
 	chainConfig, err := api.chainConfig(tx)
 	if err != nil {
@@ -80,7 +82,7 @@ func (api *OtterscanAPIImpl) GetTransactionTransfers(ctx context.Context, hash c
 		return rawdb.ReadHeader(tx, hash, number)
 	}
 	checkTEVM := ethdb.GetCheckTEVM(tx)
-	msg, blockCtx, txCtx, ibs, _, err := transactions.ComputeTxEnv(ctx, getter, chainConfig, getHeader, checkTEVM, ethash.NewFaker(), tx, blockHash, txIndex)
+	msg, blockCtx, txCtx, ibs, _, err := transactions.ComputeTxEnv(ctx, block, chainConfig, getHeader, checkTEVM, ethash.NewFaker(), tx, blockHash, txIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -493,7 +495,7 @@ func (api *OtterscanAPIImpl) traceBlock(dbtx ethdb.Tx, ctx context.Context, bloc
 		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.GetGas()), true /* refunds */, false /* gasBailout */); err != nil {
 			return false, nil, err
 		}
-		_ = ibs.FinalizeTx(vmenv.ChainConfig().WithEIPsFlags(context.Background(), block.NumberU64()), cachedWriter)
+		_ = ibs.FinalizeTx(vmenv.ChainConfig().Rules(block.NumberU64()), cachedWriter)
 
 		if tracer.Found {
 			rpcTx := newRPCTransaction(tx, block.Hash(), blockNum, uint64(idx), block.BaseFee())
