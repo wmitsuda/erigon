@@ -44,7 +44,7 @@ require (
 	github.com/ledgerwatch/secp256k1 v0.0.0-20210626115225-cd5cd00ed72d
 	github.com/logrusorgru/aurora v2.0.3+incompatible
 	github.com/mattn/go-colorable v0.1.7
-	github.com/mattn/go-isatty v0.0.12
+	github.com/mattn/go-isatty v0.0.13
 	github.com/pelletier/go-toml v1.9.3
 	github.com/petar/GoLLRB v0.0.0-20190514000832-33fb24c13b99
 	github.com/prometheus/client_golang v1.9.0
