@@ -64,7 +64,10 @@ func (api *OtterscanAPIImpl) GetTransactionTransfers(ctx context.Context, hash c
 	}
 	defer tx.Rollback()
 
-	txn, blockHash, _, txIndex := rawdb.ReadTransaction(tx, hash)
+	txn, blockHash, _, txIndex, err := rawdb.ReadTransaction(tx, hash)
+	if err != nil {
+		return nil, err
+	}
 	if txn == nil {
 		return nil, fmt.Errorf("transaction %#x not found", hash)
 	}
