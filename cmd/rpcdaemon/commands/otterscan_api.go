@@ -24,6 +24,9 @@ import (
 	"sync"
 )
 
+// API_LEVEL Must be incremented every time new additions are made
+const API_LEVEL = 1
+
 type SearchResult struct {
 	BlockNumber uint64
 }
@@ -40,6 +43,7 @@ type TransactionsWithReceipts struct {
 }
 
 type OtterscanAPI interface {
+	GetApiLevel() uint8
 	GetTransactionTransfers(ctx context.Context, hash common.Hash) ([]*otterscan.TransactionTransfer, error)
 	SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
 	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
@@ -55,6 +59,10 @@ func NewOtterscanAPI(base *BaseAPI, db ethdb.RoKV) *OtterscanAPIImpl {
 		BaseAPI: base,
 		db:      db,
 	}
+}
+
+func (api *OtterscanAPIImpl) GetApiLevel() uint8 {
+	return API_LEVEL
 }
 
 func (api *OtterscanAPIImpl) GetTransactionTransfers(ctx context.Context, hash common.Hash) ([]*otterscan.TransactionTransfer, error) {
