@@ -45,7 +45,6 @@ type TransactionsWithReceipts struct {
 type OtterscanAPI interface {
 	GetApiLevel() uint8
 	GetTransactionTransfers(ctx context.Context, hash common.Hash) ([]*otterscan.TransactionTransfer, error)
-	GetTransactionSelfDestructs(ctx context.Context, hash common.Hash) ([]*otterscan.SelfDestruct, error)
 	SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
 	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
 }
@@ -100,49 +99,6 @@ func (api *OtterscanAPIImpl) GetTransactionTransfers(ctx context.Context, hash c
 	}
 
 	tracer := otterscan.NewTransferTracer(ctx)
-	vmenv := vm.NewEVM(blockCtx, txCtx, ibs, chainConfig, vm.Config{Debug: true, Tracer: tracer})
-
-	if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), true, false /* gasBailout */); err != nil {
-		return nil, fmt.Errorf("tracing failed: %v", err)
-	}
-
-	return tracer.Results, nil
-}
-
-func (api *OtterscanAPIImpl) GetTransactionSelfDestructs(ctx context.Context, hash common.Hash) ([]*otterscan.SelfDestruct, error) {
-	tx, err := api.db.BeginRo(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	txn, blockHash, _, txIndex, err := rawdb.ReadTransaction(tx, hash)
-	if err != nil {
-		return nil, err
-	}
-	if txn == nil {
-		return nil, fmt.Errorf("transaction %#x not found", hash)
-	}
-	block, err := rawdb.ReadBlockByHash(tx, blockHash)
-	if err != nil {
-		return nil, err
-	}
-
-	chainConfig, err := api.chainConfig(tx)
-	if err != nil {
-		return nil, err
-	}
-
-	getHeader := func(hash common.Hash, number uint64) *types.Header {
-		return rawdb.ReadHeader(tx, hash, number)
-	}
-	checkTEVM := ethdb.GetCheckTEVM(tx)
-	msg, blockCtx, txCtx, ibs, _, err := transactions.ComputeTxEnv(ctx, block, chainConfig, getHeader, checkTEVM, ethash.NewFaker(), tx, blockHash, txIndex)
-	if err != nil {
-		return nil, err
-	}
-
-	tracer := otterscan.NewSelfDestructTracer(ctx)
 	vmenv := vm.NewEVM(blockCtx, txCtx, ibs, chainConfig, vm.Config{Debug: true, Tracer: tracer})
 
 	if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), true, false /* gasBailout */); err != nil {

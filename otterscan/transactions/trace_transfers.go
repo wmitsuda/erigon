@@ -11,7 +11,15 @@ import (
 	"github.com/ledgerwatch/erigon/core/vm/stack"
 )
 
+type TransferType int
+
+const (
+	TRANSFER      TransferType = 0
+	SELF_DESTRUCT TransferType = 1
+)
+
 type TransactionTransfer struct {
+	Type  TransferType   `json:"type"`
 	From  common.Address `json:"from"`
 	To    common.Address `json:"to"`
 	Value *hexutil.Big   `json:"value"`
@@ -40,7 +48,7 @@ func (l *TransferTracer) CaptureStart(depth int, from common.Address, to common.
 		return nil
 	}
 
-	l.Results = append(l.Results, &TransactionTransfer{from, to, (*hexutil.Big)(value)})
+	l.Results = append(l.Results, &TransactionTransfer{TRANSFER, from, to, (*hexutil.Big)(value)})
 	return nil
 }
 
@@ -57,6 +65,7 @@ func (l *TransferTracer) CaptureEnd(depth int, output []byte, gasUsed uint64, t 
 }
 
 func (l *TransferTracer) CaptureSelfDestruct(from common.Address, to common.Address, value *big.Int) {
+	l.Results = append(l.Results, &TransactionTransfer{SELF_DESTRUCT, from, to, (*hexutil.Big)(value)})
 }
 
 func (l *TransferTracer) CaptureAccountRead(account common.Address) error {
