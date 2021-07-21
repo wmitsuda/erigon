@@ -4,7 +4,7 @@ This is a fork of Erigon containing jsonrpc method extensions used by [Otterscan
 
 **Please be sure you have a working Erigon installation before trying this fork.**
 
-All instructions about which branch to use, how to run it, etc., are in Otterscan repository.
+All instructions about which branch to use, how to run it, etc., are in the [Otterscan repository](https://github.com/wmitsuda/otterscan).
 
 The rest of this document contains the original Erigon README content.
 
