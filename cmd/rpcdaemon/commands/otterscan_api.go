@@ -44,7 +44,7 @@ type TransactionsWithReceipts struct {
 
 type OtterscanAPI interface {
 	GetApiLevel() uint8
-	GetTransactionTransfers(ctx context.Context, hash common.Hash) ([]*otterscan.TransactionTransfer, error)
+	GetInternalOperations(ctx context.Context, hash common.Hash) ([]*otterscan.InternalOperation, error)
 	SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
 	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
 }
@@ -65,7 +65,7 @@ func (api *OtterscanAPIImpl) GetApiLevel() uint8 {
 	return API_LEVEL
 }
 
-func (api *OtterscanAPIImpl) GetTransactionTransfers(ctx context.Context, hash common.Hash) ([]*otterscan.TransactionTransfer, error) {
+func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash common.Hash) ([]*otterscan.InternalOperation, error) {
 	tx, err := api.db.BeginRo(ctx)
 	if err != nil {
 		return nil, err
@@ -98,7 +98,7 @@ func (api *OtterscanAPIImpl) GetTransactionTransfers(ctx context.Context, hash c
 		return nil, err
 	}
 
-	tracer := otterscan.NewTransferTracer(ctx)
+	tracer := otterscan.NewOperationsTracer(ctx)
 	vmenv := vm.NewEVM(blockCtx, txCtx, ibs, chainConfig, vm.Config{Debug: true, Tracer: tracer})
 
 	if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), true, false /* gasBailout */); err != nil {
