@@ -16,6 +16,8 @@ type TransferType int
 const (
 	TRANSFER      TransferType = 0
 	SELF_DESTRUCT TransferType = 1
+	CREATE        TransferType = 2
+	CREATE2       TransferType = 3
 )
 
 type TransactionTransfer struct {
@@ -41,14 +43,18 @@ func (l *TransferTracer) CaptureStart(depth int, from common.Address, to common.
 	if depth == 0 {
 		return nil
 	}
-	if calltype != vm.CALLT {
+
+	if calltype == vm.CALLT && value.Uint64() != 0 {
+		l.Results = append(l.Results, &TransactionTransfer{TRANSFER, from, to, (*hexutil.Big)(value)})
 		return nil
 	}
-	if value.Uint64() == 0 {
-		return nil
+	if calltype == vm.CREATET {
+		l.Results = append(l.Results, &TransactionTransfer{CREATE, from, to, (*hexutil.Big)(value)})
+	}
+	if calltype == vm.CREATE2T {
+		l.Results = append(l.Results, &TransactionTransfer{CREATE2, from, to, (*hexutil.Big)(value)})
 	}
 
-	l.Results = append(l.Results, &TransactionTransfer{TRANSFER, from, to, (*hexutil.Big)(value)})
 	return nil
 }
 
