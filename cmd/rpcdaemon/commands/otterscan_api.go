@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/ledgerwatch/erigon/common"
-	"github.com/ledgerwatch/erigon/common/dbutils"
 	"github.com/ledgerwatch/erigon/consensus/ethash"
 	"github.com/ledgerwatch/erigon/core"
 	"github.com/ledgerwatch/erigon/core/rawdb"
@@ -16,6 +15,7 @@ import (
 	"github.com/ledgerwatch/erigon/core/types"
 	"github.com/ledgerwatch/erigon/core/vm"
 	"github.com/ledgerwatch/erigon/ethdb"
+	"github.com/ledgerwatch/erigon/ethdb/kv"
 	"github.com/ledgerwatch/erigon/log"
 	otterscan "github.com/ledgerwatch/erigon/otterscan/transactions"
 	"github.com/ledgerwatch/erigon/params"
@@ -51,10 +51,10 @@ type OtterscanAPI interface {
 
 type OtterscanAPIImpl struct {
 	*BaseAPI
-	db ethdb.RoKV
+	db kv.RoDB
 }
 
-func NewOtterscanAPI(base *BaseAPI, db ethdb.RoKV) *OtterscanAPIImpl {
+func NewOtterscanAPI(base *BaseAPI, db kv.RoDB) *OtterscanAPIImpl {
 	return &OtterscanAPIImpl{
 		BaseAPI: base,
 		db:      db,
@@ -115,12 +115,12 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 	}
 	defer dbtx.Rollback()
 
-	fromCursor, err := dbtx.Cursor(dbutils.CallFromIndex)
+	fromCursor, err := dbtx.Cursor(kv.CallFromIndex)
 	if err != nil {
 		return nil, err
 	}
 	defer fromCursor.Close()
-	toCursor, err := dbtx.Cursor(dbutils.CallToIndex)
+	toCursor, err := dbtx.Cursor(kv.CallToIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +191,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 	return &TransactionsWithReceipts{txs, receipts, blockNum == 0, eof}, nil
 }
 
-func newSearchBackIterator(cursor ethdb.Cursor, addr common.Address, maxBlock uint64) func() (uint64, bool, error) {
+func newSearchBackIterator(cursor kv.Cursor, addr common.Address, maxBlock uint64) func() (uint64, bool, error) {
 	search := make([]byte, common.AddressLength+8)
 	copy(search[:common.AddressLength], addr.Bytes())
 	if maxBlock == 0 {
@@ -256,12 +256,12 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	}
 	defer dbtx.Rollback()
 
-	fromCursor, err := dbtx.Cursor(dbutils.CallFromIndex)
+	fromCursor, err := dbtx.Cursor(kv.CallFromIndex)
 	if err != nil {
 		return nil, err
 	}
 	defer fromCursor.Close()
-	toCursor, err := dbtx.Cursor(dbutils.CallToIndex)
+	toCursor, err := dbtx.Cursor(kv.CallToIndex)
 	if err != nil {
 		return nil, err
 	}
@@ -332,7 +332,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	return &TransactionsWithReceipts{txs, receipts, eof, blockNum == 0}, nil
 }
 
-func newSearchForwardIterator(cursor ethdb.Cursor, addr common.Address, minBlock uint64) func() (uint64, bool, error) {
+func newSearchForwardIterator(cursor kv.Cursor, addr common.Address, minBlock uint64) func() (uint64, bool, error) {
 	search := make([]byte, common.AddressLength+8)
 	copy(search[:common.AddressLength], addr.Bytes())
 	if minBlock == 0 {
@@ -460,7 +460,7 @@ func (api *OtterscanAPIImpl) traceOneBlock(ctx context.Context, wg *sync.WaitGro
 	results[idx] = result
 }
 
-func (api *OtterscanAPIImpl) traceBlock(dbtx ethdb.Tx, ctx context.Context, blockNum uint64, searchAddr common.Address, chainConfig *params.ChainConfig) (bool, *TransactionsWithReceipts, error) {
+func (api *OtterscanAPIImpl) traceBlock(dbtx kv.Tx, ctx context.Context, blockNum uint64, searchAddr common.Address, chainConfig *params.ChainConfig) (bool, *TransactionsWithReceipts, error) {
 	rpcTxs := make([]*RPCTransaction, 0)
 	receipts := make([]map[string]interface{}, 0)
 
@@ -475,7 +475,7 @@ func (api *OtterscanAPIImpl) traceBlock(dbtx ethdb.Tx, ctx context.Context, bloc
 		return false, nil, err
 	}
 
-	reader := state.NewPlainKvState(dbtx, blockNum-1)
+	reader := state.NewPlainState(dbtx, blockNum-1)
 	stateCache := shards.NewStateCache(32, 0 /* no limit */)
 	cachedReader := state.NewCachedReader(reader, stateCache)
 	noop := state.NewNoopWriter()
