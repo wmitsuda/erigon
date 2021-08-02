@@ -527,19 +527,7 @@ func (api *OtterscanAPIImpl) traceBlock(dbtx kv.Tx, ctx context.Context, blockNu
 	return found, &TransactionsWithReceipts{rpcTxs, receipts, false, false}, nil
 }
 
-func (api *OtterscanAPIImpl) delegateGetBlockByNumber(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error) {
-	tx, err := api.db.BeginRo(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-	b, err := api.getBlockByNumber(number, tx)
-	if err != nil {
-		return nil, err
-	}
-	if b == nil {
-		return nil, nil
-	}
+func (api *OtterscanAPIImpl) delegateGetBlockByNumber(tx kv.Tx, b *types.Block, number rpc.BlockNumber) (map[string]interface{}, error) {
 	additionalFields := make(map[string]interface{})
 
 	td, err := rawdb.ReadTd(tx, b.Hash(), b.NumberU64())
@@ -559,26 +547,12 @@ func (api *OtterscanAPIImpl) delegateGetBlockByNumber(ctx context.Context, numbe
 	return response, err
 }
 
-func (api *OtterscanAPIImpl) delegateIssuance(ctx context.Context, number rpc.BlockNumber) (Issuance, error) {
-	tx, err := api.db.BeginRo(ctx)
-	if err != nil {
-		return Issuance{}, err
-	}
-	defer tx.Rollback()
-
-	chainConfig, err := api.chainConfig(tx)
-	if err != nil {
-		return Issuance{}, err
-	}
+func (api *OtterscanAPIImpl) delegateIssuance(tx kv.Tx, block *types.Block, chainConfig *params.ChainConfig) (Issuance, error) {
 	if chainConfig.Ethash == nil {
 		// Clique for example has no issuance
 		return Issuance{}, nil
 	}
 
-	block, err := api.getBlockByNumber(number, tx)
-	if err != nil {
-		return Issuance{}, err
-	}
 	minerReward, uncleRewards := ethash.AccumulateRewards(chainConfig, block.Header(), block.Uncles())
 	issuance := minerReward
 	for _, r := range uncleRewards {
@@ -594,32 +568,12 @@ func (api *OtterscanAPIImpl) delegateIssuance(ctx context.Context, number rpc.Bl
 	return ret, nil
 }
 
-func (api *OtterscanAPIImpl) delegateBlockFees(ctx context.Context, number rpc.BlockNumber) (uint64, error) {
-	tx, err := api.db.BeginRo(ctx)
-	if err != nil {
-		return 0, err
-	}
-	defer tx.Rollback()
-
-	blockNum, err := getBlockNumber(number, tx)
-	if err != nil {
-		return 0, err
-	}
-	block, senders, err := rawdb.ReadBlockByNumberWithSenders(tx, blockNum)
-	if err != nil {
-		return 0, err
-	}
-	if block == nil {
-		return 0, nil
-	}
-	chainConfig, err := api.chainConfig(tx)
-	if err != nil {
-		return 0, err
-	}
-	receipts, err := getReceipts(ctx, tx, chainConfig, block, senders)
+func (api *OtterscanAPIImpl) delegateBlockFees(ctx context.Context, tx kv.Tx, block *types.Block, chainConfig *params.ChainConfig) (uint64, error) {
+	receipts, err := getReceipts(ctx, tx, chainConfig, block, nil)
 	if err != nil {
 		return 0, fmt.Errorf("getReceipts error: %v", err)
 	}
+
 	fees := uint64(0)
 	for _, receipt := range receipts {
 		txn := block.Transactions()[receipt.TransactionIndex]
@@ -635,19 +589,37 @@ func (api *OtterscanAPIImpl) delegateBlockFees(ctx context.Context, number rpc.B
 	}
 
 	return fees, nil
-
 }
 
 func (api *OtterscanAPIImpl) GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error) {
-	getBlockRes, err := api.delegateGetBlockByNumber(ctx, number)
+	tx, err := api.db.BeginRo(ctx)
 	if err != nil {
 		return nil, err
 	}
-	getIssuanceRes, err := api.delegateIssuance(ctx, number)
+	defer tx.Rollback()
+
+	b, err := api.getBlockByNumber(number, tx)
 	if err != nil {
 		return nil, err
 	}
-	feesRes, err := api.delegateBlockFees(ctx, number)
+	if b == nil {
+		return nil, nil
+	}
+
+	chainConfig, err := api.chainConfig(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	getBlockRes, err := api.delegateGetBlockByNumber(tx, b, number)
+	if err != nil {
+		return nil, err
+	}
+	getIssuanceRes, err := api.delegateIssuance(tx, b, chainConfig)
+	if err != nil {
+		return nil, err
+	}
+	feesRes, err := api.delegateBlockFees(ctx, tx, b, chainConfig)
 
 	response := map[string]interface{}{}
 	response["block"] = getBlockRes
