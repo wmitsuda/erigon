@@ -544,6 +544,9 @@ func (api *OtterscanAPIImpl) delegateGetBlockByNumber(tx kv.Tx, b *types.Block, 
 			response[field] = nil
 		}
 	}
+
+	// Explicitly drop unwanted fields
+	response["logsBloom"] = nil
 	return response, err
 }
 
