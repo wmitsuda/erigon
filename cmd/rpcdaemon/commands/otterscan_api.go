@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"github.com/RoaringBitmap/roaring/roaring64"
+	"github.com/holiman/uint256"
 	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/common/hexutil"
 	"github.com/ledgerwatch/erigon/consensus/ethash"
 	"github.com/ledgerwatch/erigon/core"
 	"github.com/ledgerwatch/erigon/core/rawdb"
@@ -19,8 +21,11 @@ import (
 	"github.com/ledgerwatch/erigon/log"
 	otterscan "github.com/ledgerwatch/erigon/otterscan/transactions"
 	"github.com/ledgerwatch/erigon/params"
+	"github.com/ledgerwatch/erigon/rpc"
+	"github.com/ledgerwatch/erigon/turbo/adapter/ethapi"
 	"github.com/ledgerwatch/erigon/turbo/shards"
 	"github.com/ledgerwatch/erigon/turbo/transactions"
+	"math/big"
 	"sync"
 )
 
@@ -47,6 +52,7 @@ type OtterscanAPI interface {
 	GetInternalOperations(ctx context.Context, hash common.Hash) ([]*otterscan.InternalOperation, error)
 	SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
 	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
+	GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error)
 }
 
 type OtterscanAPIImpl struct {
@@ -519,4 +525,122 @@ func (api *OtterscanAPIImpl) traceBlock(dbtx kv.Tx, ctx context.Context, blockNu
 	}
 
 	return found, &TransactionsWithReceipts{rpcTxs, receipts, false, false}, nil
+}
+
+func (api *OtterscanAPIImpl) delegateGetBlockByNumber(tx kv.Tx, b *types.Block, number rpc.BlockNumber) (map[string]interface{}, error) {
+	additionalFields := make(map[string]interface{})
+
+	td, err := rawdb.ReadTd(tx, b.Hash(), b.NumberU64())
+	if err != nil {
+		return nil, err
+	}
+	additionalFields["totalDifficulty"] = (*hexutil.Big)(td)
+	additionalFields["transactionCount"] = b.Transactions().Len()
+	response, err := ethapi.RPCMarshalBlock(b, false, false, additionalFields)
+
+	if err == nil && number == rpc.PendingBlockNumber {
+		// Pending blocks need to nil out a few fields
+		for _, field := range []string{"hash", "nonce", "miner"} {
+			response[field] = nil
+		}
+	}
+
+	// Explicitly drop unwanted fields
+	response["logsBloom"] = nil
+	return response, err
+}
+
+func (api *OtterscanAPIImpl) delegateIssuance(tx kv.Tx, block *types.Block, chainConfig *params.ChainConfig) (Issuance, error) {
+	if chainConfig.Ethash == nil {
+		// Clique for example has no issuance
+		return Issuance{}, nil
+	}
+
+	minerReward, uncleRewards := ethash.AccumulateRewards(chainConfig, block.Header(), block.Uncles())
+	issuance := minerReward
+	for _, r := range uncleRewards {
+		p := r // avoids warning?
+		issuance.Add(&issuance, &p)
+	}
+
+	var ret Issuance
+	ret.BlockReward = hexutil.EncodeBig(minerReward.ToBig())
+	ret.Issuance = hexutil.EncodeBig(issuance.ToBig())
+	issuance.Sub(&issuance, &minerReward)
+	ret.UncleReward = hexutil.EncodeBig(issuance.ToBig())
+	return ret, nil
+}
+
+func (api *OtterscanAPIImpl) delegateBlockFees(ctx context.Context, tx kv.Tx, block *types.Block, senders []common.Address, chainConfig *params.ChainConfig) (uint64, error) {
+	receipts, err := getReceipts(ctx, tx, chainConfig, block, senders)
+	if err != nil {
+		return 0, fmt.Errorf("getReceipts error: %v", err)
+	}
+
+	fees := uint64(0)
+	for _, receipt := range receipts {
+		txn := block.Transactions()[receipt.TransactionIndex]
+		effectiveGasPrice := uint64(0)
+		if !chainConfig.IsLondon(block.NumberU64()) {
+			effectiveGasPrice = txn.GetPrice().Uint64()
+		} else {
+			baseFee, _ := uint256.FromBig(block.BaseFee())
+			gasPrice := new(big.Int).Add(block.BaseFee(), txn.GetEffectiveGasTip(baseFee).ToBig())
+			effectiveGasPrice = gasPrice.Uint64()
+		}
+		fees += effectiveGasPrice * receipt.GasUsed
+	}
+
+	return fees, nil
+}
+
+func (api *OtterscanAPIImpl) getBlockWithSenders(number rpc.BlockNumber, tx kv.Tx) (*types.Block, []common.Address, error) {
+	if number == rpc.PendingBlockNumber {
+		return api.pendingBlock(), nil, nil
+	}
+
+	n, err := getBlockNumber(number, tx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	block, senders, err := rawdb.ReadBlockByNumberWithSenders(tx, n)
+	return block, senders, err
+}
+
+func (api *OtterscanAPIImpl) GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error) {
+	tx, err := api.db.BeginRo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	b, senders, err := api.getBlockWithSenders(number, tx)
+	if err != nil {
+		return nil, err
+	}
+	if b == nil {
+		return nil, nil
+	}
+
+	chainConfig, err := api.chainConfig(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	getBlockRes, err := api.delegateGetBlockByNumber(tx, b, number)
+	if err != nil {
+		return nil, err
+	}
+	getIssuanceRes, err := api.delegateIssuance(tx, b, chainConfig)
+	if err != nil {
+		return nil, err
+	}
+	feesRes, err := api.delegateBlockFees(ctx, tx, b, senders, chainConfig)
+
+	response := map[string]interface{}{}
+	response["block"] = getBlockRes
+	response["issuance"] = getIssuanceRes
+	response["totalFees"] = hexutil.Uint64(feesRes)
+	return response, nil
 }
