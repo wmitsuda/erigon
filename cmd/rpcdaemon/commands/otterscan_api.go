@@ -571,8 +571,8 @@ func (api *OtterscanAPIImpl) delegateIssuance(tx kv.Tx, block *types.Block, chai
 	return ret, nil
 }
 
-func (api *OtterscanAPIImpl) delegateBlockFees(ctx context.Context, tx kv.Tx, block *types.Block, chainConfig *params.ChainConfig) (uint64, error) {
-	receipts, err := getReceipts(ctx, tx, chainConfig, block, nil)
+func (api *OtterscanAPIImpl) delegateBlockFees(ctx context.Context, tx kv.Tx, block *types.Block, senders []common.Address, chainConfig *params.ChainConfig) (uint64, error) {
+	receipts, err := getReceipts(ctx, tx, chainConfig, block, senders)
 	if err != nil {
 		return 0, fmt.Errorf("getReceipts error: %v", err)
 	}
@@ -594,6 +594,20 @@ func (api *OtterscanAPIImpl) delegateBlockFees(ctx context.Context, tx kv.Tx, bl
 	return fees, nil
 }
 
+func (api *OtterscanAPIImpl) getBlockWithSenders(number rpc.BlockNumber, tx kv.Tx) (*types.Block, []common.Address, error) {
+	if number == rpc.PendingBlockNumber {
+		return api.pendingBlock(), nil, nil
+	}
+
+	n, err := getBlockNumber(number, tx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	block, senders, err := rawdb.ReadBlockByNumberWithSenders(tx, n)
+	return block, senders, err
+}
+
 func (api *OtterscanAPIImpl) GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error) {
 	tx, err := api.db.BeginRo(ctx)
 	if err != nil {
@@ -601,7 +615,7 @@ func (api *OtterscanAPIImpl) GetBlockDetails(ctx context.Context, number rpc.Blo
 	}
 	defer tx.Rollback()
 
-	b, err := api.getBlockByNumber(number, tx)
+	b, senders, err := api.getBlockWithSenders(number, tx)
 	if err != nil {
 		return nil, err
 	}
@@ -622,7 +636,7 @@ func (api *OtterscanAPIImpl) GetBlockDetails(ctx context.Context, number rpc.Blo
 	if err != nil {
 		return nil, err
 	}
-	feesRes, err := api.delegateBlockFees(ctx, tx, b, chainConfig)
+	feesRes, err := api.delegateBlockFees(ctx, tx, b, senders, chainConfig)
 
 	response := map[string]interface{}{}
 	response["block"] = getBlockRes
