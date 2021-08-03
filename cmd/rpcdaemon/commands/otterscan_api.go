@@ -18,11 +18,11 @@ import (
 	"github.com/ledgerwatch/erigon/core/vm"
 	"github.com/ledgerwatch/erigon/ethdb"
 	"github.com/ledgerwatch/erigon/ethdb/kv"
+	"github.com/ledgerwatch/erigon/internal/ethapi"
 	"github.com/ledgerwatch/erigon/log"
 	otterscan "github.com/ledgerwatch/erigon/otterscan/transactions"
 	"github.com/ledgerwatch/erigon/params"
 	"github.com/ledgerwatch/erigon/rpc"
-	"github.com/ledgerwatch/erigon/turbo/adapter/ethapi"
 	"github.com/ledgerwatch/erigon/turbo/shards"
 	"github.com/ledgerwatch/erigon/turbo/transactions"
 	"math/big"
@@ -53,6 +53,7 @@ type OtterscanAPI interface {
 	SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
 	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
 	GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error)
+	GetBlockTransactions(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error)
 }
 
 type OtterscanAPIImpl struct {
@@ -527,16 +528,14 @@ func (api *OtterscanAPIImpl) traceBlock(dbtx kv.Tx, ctx context.Context, blockNu
 	return found, &TransactionsWithReceipts{rpcTxs, receipts, false, false}, nil
 }
 
-func (api *OtterscanAPIImpl) delegateGetBlockByNumber(tx kv.Tx, b *types.Block, number rpc.BlockNumber) (map[string]interface{}, error) {
-	additionalFields := make(map[string]interface{})
-
+func (api *OtterscanAPIImpl) delegateGetBlockByNumber(tx kv.Tx, b *types.Block, number rpc.BlockNumber, inclTx bool) (map[string]interface{}, error) {
 	td, err := rawdb.ReadTd(tx, b.Hash(), b.NumberU64())
 	if err != nil {
 		return nil, err
 	}
-	additionalFields["totalDifficulty"] = (*hexutil.Big)(td)
-	additionalFields["transactionCount"] = b.Transactions().Len()
-	response, err := ethapi.RPCMarshalBlock(b, false, false, additionalFields)
+	response, err := ethapi.RPCMarshalBlock(b, inclTx, inclTx)
+	response["totalDifficulty"] = (*hexutil.Big)(td)
+	response["transactionCount"] = b.Transactions().Len()
 
 	if err == nil && number == rpc.PendingBlockNumber {
 		// Pending blocks need to nil out a few fields
@@ -628,7 +627,7 @@ func (api *OtterscanAPIImpl) GetBlockDetails(ctx context.Context, number rpc.Blo
 		return nil, err
 	}
 
-	getBlockRes, err := api.delegateGetBlockByNumber(tx, b, number)
+	getBlockRes, err := api.delegateGetBlockByNumber(tx, b, number, false)
 	if err != nil {
 		return nil, err
 	}
@@ -637,10 +636,73 @@ func (api *OtterscanAPIImpl) GetBlockDetails(ctx context.Context, number rpc.Blo
 		return nil, err
 	}
 	feesRes, err := api.delegateBlockFees(ctx, tx, b, senders, chainConfig)
+	if err != nil {
+		return nil, err
+	}
 
 	response := map[string]interface{}{}
 	response["block"] = getBlockRes
 	response["issuance"] = getIssuanceRes
 	response["totalFees"] = hexutil.Uint64(feesRes)
+	return response, nil
+}
+
+func (api *OtterscanAPIImpl) GetBlockTransactions(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error) {
+	tx, err := api.db.BeginRo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	b, senders, err := api.getBlockWithSenders(number, tx)
+	if err != nil {
+		return nil, err
+	}
+	if b == nil {
+		return nil, nil
+	}
+
+	chainConfig, err := api.chainConfig(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	getBlockRes, err := api.delegateGetBlockByNumber(tx, b, number, true)
+	if err != nil {
+		return nil, err
+	}
+
+	// Receipts
+	receipts, err := getReceipts(ctx, tx, chainConfig, b, senders)
+	if err != nil {
+		return nil, fmt.Errorf("getReceipts error: %v", err)
+	}
+	result := make([]map[string]interface{}, 0, len(receipts))
+	for _, receipt := range receipts {
+		txn := b.Transactions()[receipt.TransactionIndex]
+		marshalledRcpt := marshalReceipt(receipt, txn, chainConfig, b)
+		marshalledRcpt["logs"] = nil
+		marshalledRcpt["logsBloom"] = nil
+		result = append(result, marshalledRcpt)
+	}
+
+	// Pruned block attrs
+	prunedBlock := map[string]interface{}{}
+	for _, k := range []string{"timestamp", "miner", "baseFeePerGas"} {
+		prunedBlock[k] = getBlockRes[k]
+	}
+
+	// Crop tx input to 4bytes
+	var txs = getBlockRes["transactions"].([]interface{})
+	for _, rawTx := range txs {
+		rpcTx := rawTx.(*ethapi.RPCTransaction)
+		if len(rpcTx.Input) >= 4 {
+			rpcTx.Input = rpcTx.Input[:4]
+		}
+	}
+
+	response := map[string]interface{}{}
+	response["fullblock"] = getBlockRes
+	response["receipts"] = result
 	return response, nil
 }
