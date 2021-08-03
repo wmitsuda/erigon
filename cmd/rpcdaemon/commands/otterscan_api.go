@@ -53,7 +53,7 @@ type OtterscanAPI interface {
 	SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
 	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
 	GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error)
-	GetBlockTransactions(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error)
+	GetBlockTransactions(ctx context.Context, number rpc.BlockNumber, pageNumber uint8, pageSize uint8) (map[string]interface{}, error)
 }
 
 type OtterscanAPIImpl struct {
@@ -647,7 +647,7 @@ func (api *OtterscanAPIImpl) GetBlockDetails(ctx context.Context, number rpc.Blo
 	return response, nil
 }
 
-func (api *OtterscanAPIImpl) GetBlockTransactions(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error) {
+func (api *OtterscanAPIImpl) GetBlockTransactions(ctx context.Context, number rpc.BlockNumber, pageNumber uint8, pageSize uint8) (map[string]interface{}, error) {
 	tx, err := api.db.BeginRo(ctx)
 	if err != nil {
 		return nil, err
@@ -701,8 +701,19 @@ func (api *OtterscanAPIImpl) GetBlockTransactions(ctx context.Context, number rp
 		}
 	}
 
+	// Crop page
+	pageEnd := b.Transactions().Len() - int(pageNumber)*int(pageSize)
+	pageStart := pageEnd - int(pageSize)
+	if pageEnd < 0 {
+		pageEnd = 0
+	}
+	if pageStart < 0 {
+		pageStart = 0
+	}
+
 	response := map[string]interface{}{}
+	getBlockRes["transactions"] = getBlockRes["transactions"].([]interface{})[pageStart:pageEnd]
 	response["fullblock"] = getBlockRes
-	response["receipts"] = result
+	response["receipts"] = result[pageStart:pageEnd]
 	return response, nil
 }
