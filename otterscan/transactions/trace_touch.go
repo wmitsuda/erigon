@@ -21,7 +21,7 @@ func NewTouchTracer(searchAddr common.Address) *TouchTracer {
 	}
 }
 
-func (l *TouchTracer) CaptureStart(depth int, from common.Address, to common.Address, precompile bool, create bool, calltype vm.CallType, input []byte, gas uint64, value *big.Int, codeHash common.Hash) error {
+func (l *TouchTracer) CaptureStart(depth int, from common.Address, to common.Address, precompile bool, create bool, calltype vm.CallType, input []byte, gas uint64, value *big.Int, code []byte) error {
 	if !l.Found && (bytes.Equal(l.searchAddr.Bytes(), from.Bytes()) || bytes.Equal(l.searchAddr.Bytes(), to.Bytes())) {
 		l.Found = true
 	}
@@ -36,7 +36,7 @@ func (l *TouchTracer) CaptureFault(env *vm.EVM, pc uint64, op vm.OpCode, gas, co
 	return nil
 }
 
-func (l *TouchTracer) CaptureEnd(depth int, output []byte, gasUsed uint64, t time.Duration, err error) error {
+func (l *TouchTracer) CaptureEnd(depth int, output []byte, startGas, endGas uint64, t time.Duration, err error) error {
 	return nil
 }
 

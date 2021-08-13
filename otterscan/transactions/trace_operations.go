@@ -39,7 +39,7 @@ func NewOperationsTracer(ctx context.Context) *OperationsTracer {
 	}
 }
 
-func (l *OperationsTracer) CaptureStart(depth int, from common.Address, to common.Address, precompile bool, create bool, calltype vm.CallType, input []byte, gas uint64, value *big.Int, codeHash common.Hash) error {
+func (l *OperationsTracer) CaptureStart(depth int, from common.Address, to common.Address, precompile bool, create bool, calltype vm.CallType, input []byte, gas uint64, value *big.Int, code []byte) error {
 	if depth == 0 {
 		return nil
 	}
@@ -66,7 +66,7 @@ func (l *OperationsTracer) CaptureFault(env *vm.EVM, pc uint64, op vm.OpCode, ga
 	return nil
 }
 
-func (l *OperationsTracer) CaptureEnd(depth int, output []byte, gasUsed uint64, t time.Duration, err error) error {
+func (l *OperationsTracer) CaptureEnd(depth int, output []byte, startGas, endGas uint64, t time.Duration, err error) error {
 	return nil
 }
 

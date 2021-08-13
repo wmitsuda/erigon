@@ -99,7 +99,7 @@ func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash com
 	getHeader := func(hash common.Hash, number uint64) *types.Header {
 		return rawdb.ReadHeader(tx, hash, number)
 	}
-	checkTEVM := ethdb.GetCheckTEVM(tx)
+	checkTEVM := ethdb.GetHasTEVM(tx)
 	msg, blockCtx, txCtx, ibs, _, err := transactions.ComputeTxEnv(ctx, block, chainConfig, getHeader, checkTEVM, ethash.NewFaker(), tx, blockHash, txIndex)
 	if err != nil {
 		return nil, err
@@ -495,7 +495,7 @@ func (api *OtterscanAPIImpl) traceBlock(dbtx kv.Tx, ctx context.Context, blockNu
 		return rawdb.ReadHeader(dbtx, hash, number)
 	}
 	engine := ethash.NewFaker()
-	checkTEVM := ethdb.GetCheckTEVM(dbtx)
+	checkTEVM := ethdb.GetHasTEVM(dbtx)
 
 	blockReceipts := rawdb.ReadReceipts(dbtx, block, senders)
 	header := block.Header()
