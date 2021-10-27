@@ -38,20 +38,22 @@ func (l *TransactionTracer) CaptureStart(depth int, from common.Address, to comm
 
 	inputCopy := make([]byte, len(input))
 	copy(inputCopy, input)
+	_value := new(big.Int)
+	_value.Set(value)
 	if callType == vm.CALLT {
-		l.Results = append(l.Results, &TraceEntry{"CALL", depth, from, to, (*hexutil.Big)(value), inputCopy})
+		l.Results = append(l.Results, &TraceEntry{"CALL", depth, from, to, (*hexutil.Big)(_value), inputCopy})
 		return nil
 	}
 	if callType == vm.STATICCALLT {
-		l.Results = append(l.Results, &TraceEntry{"STATICCALL", depth, from, to, (*hexutil.Big)(value), inputCopy})
+		l.Results = append(l.Results, &TraceEntry{"STATICCALL", depth, from, to, nil, inputCopy})
 		return nil
 	}
 	if callType == vm.DELEGATECALLT {
-		l.Results = append(l.Results, &TraceEntry{"DELEGATECALL", depth, from, to, (*hexutil.Big)(value), inputCopy})
+		l.Results = append(l.Results, &TraceEntry{"DELEGATECALL", depth, from, to, nil, inputCopy})
 		return nil
 	}
 	if callType == vm.CALLCODET {
-		l.Results = append(l.Results, &TraceEntry{"CALLCODE", depth, from, to, (*hexutil.Big)(value), inputCopy})
+		l.Results = append(l.Results, &TraceEntry{"CALLCODE", depth, from, to, (*hexutil.Big)(_value), inputCopy})
 		return nil
 	}
 	if callType == vm.CREATET {
