@@ -46,6 +46,14 @@ func (l *TransactionTracer) CaptureStart(depth int, from common.Address, to comm
 		l.Results = append(l.Results, &TraceEntry{"STATICCALL", depth, from, to, (*hexutil.Big)(value), inputCopy})
 		return nil
 	}
+	if callType == vm.DELEGATECALLT {
+		l.Results = append(l.Results, &TraceEntry{"DELEGATECALL", depth, from, to, (*hexutil.Big)(value), inputCopy})
+		return nil
+	}
+	if callType == vm.CALLCODET {
+		l.Results = append(l.Results, &TraceEntry{"CALLCODE", depth, from, to, (*hexutil.Big)(value), inputCopy})
+		return nil
+	}
 	if callType == vm.CREATET {
 		l.Results = append(l.Results, &TraceEntry{"CREATE", depth, from, to, (*hexutil.Big)(value), inputCopy})
 		return nil
