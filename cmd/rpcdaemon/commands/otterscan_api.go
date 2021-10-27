@@ -30,7 +30,7 @@ import (
 )
 
 // API_LEVEL Must be incremented every time new additions are made
-const API_LEVEL = 2
+const API_LEVEL = 3
 
 type SearchResult struct {
 	BlockNumber uint64
@@ -54,6 +54,7 @@ type OtterscanAPI interface {
 	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
 	GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error)
 	GetBlockTransactions(ctx context.Context, number rpc.BlockNumber, pageNumber uint8, pageSize uint8) (map[string]interface{}, error)
+	TraceTransaction(ctx context.Context, hash common.Hash) ([]*otterscan.TraceEntry, error)
 }
 
 type OtterscanAPIImpl struct {
@@ -716,4 +717,47 @@ func (api *OtterscanAPIImpl) GetBlockTransactions(ctx context.Context, number rp
 	response["fullblock"] = getBlockRes
 	response["receipts"] = result[pageStart:pageEnd]
 	return response, nil
+}
+
+func (api *OtterscanAPIImpl) TraceTransaction(ctx context.Context, hash common.Hash) ([]*otterscan.TraceEntry, error) {
+	tx, err := api.db.BeginRo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	txn, blockHash, _, txIndex, err := rawdb.ReadTransaction(tx, hash)
+	if err != nil {
+		return nil, err
+	}
+	if txn == nil {
+		return nil, fmt.Errorf("transaction %#x not found", hash)
+	}
+	block, err := rawdb.ReadBlockByHash(tx, blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	chainConfig, err := api.chainConfig(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	getHeader := func(hash common.Hash, number uint64) *types.Header {
+		return rawdb.ReadHeader(tx, hash, number)
+	}
+	checkTEVM := ethdb.GetHasTEVM(tx)
+	msg, blockCtx, txCtx, ibs, _, err := transactions.ComputeTxEnv(ctx, block, chainConfig, getHeader, checkTEVM, ethash.NewFaker(), tx, blockHash, txIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	tracer := otterscan.NewTransactionTracer(ctx)
+	vmenv := vm.NewEVM(blockCtx, txCtx, ibs, chainConfig, vm.Config{Debug: true, Tracer: tracer})
+
+	if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), true, false /* gasBailout */); err != nil {
+		return nil, fmt.Errorf("tracing failed: %v", err)
+	}
+
+	return tracer.Results, nil
 }
