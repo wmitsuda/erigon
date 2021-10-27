@@ -32,6 +32,10 @@ func NewTransactionTracer(ctx context.Context) *TransactionTracer {
 }
 
 func (l *TransactionTracer) CaptureStart(depth int, from common.Address, to common.Address, precompile bool, create bool, callType vm.CallType, input []byte, gas uint64, value *big.Int, code []byte) error {
+	if precompile {
+		return nil
+	}
+
 	inputCopy := make([]byte, len(input))
 	copy(inputCopy, input)
 	if callType == vm.CALLT {
