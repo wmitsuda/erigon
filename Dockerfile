@@ -27,11 +27,11 @@ EXPOSE 8545 8546 30303 30303/udp 30304 30304/udp 8080 9090 6060
 ARG BUILD_DATE
 ARG VCS_REF
 LABEL org.label-schema.build-date=$BUILD_DATE \
-      org.label-schema.name="Erigon" \
-      org.label-schema.description="Erigon Ethereum Client" \
-      org.label-schema.url="https://torquem.ch" \
+      org.label-schema.name="Otterscan/Erigon" \
+      org.label-schema.description="Otterscan patched version of Erigon Ethereum Client" \
+      org.label-schema.url="https://otterscan.io" \
       org.label-schema.vcs-ref=$VCS_REF \
-      org.label-schema.vcs-url="https://github.com/ledgerwatch/erigon.git" \
-      org.label-schema.vendor="Torquem" \
+      org.label-schema.vcs-url="https://github.com/wmitsuda/erigon.git" \
+      org.label-schema.vendor="Otterscan" \
       org.label-schema.version=$VERSION \
       org.label-schema.schema-version="1.0"
