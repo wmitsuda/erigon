@@ -31,6 +31,7 @@ func APIList(ctx context.Context, db kv.RoDB,
 	traceImpl := NewTraceAPI(base, db, &cfg)
 	web3Impl := NewWeb3APIImpl(eth)
 	dbImpl := NewDBAPIImpl() /* deprecated */
+	otsImpl := NewOtterscanAPI(base, db)
 
 	for _, enabledAPI := range cfg.API {
 		switch enabledAPI {
@@ -88,6 +89,13 @@ func APIList(ctx context.Context, db kv.RoDB,
 				Namespace: "erigon",
 				Public:    true,
 				Service:   ErigonAPI(erigonImpl),
+				Version:   "1.0",
+			})
+		case "ots":
+			defaultAPIList = append(defaultAPIList, rpc.API{
+				Namespace: "ots",
+				Public:    true,
+				Service:   OtterscanAPI(otsImpl),
 				Version:   "1.0",
 			})
 		}
