@@ -81,6 +81,8 @@ func (l *TransactionTracer) CaptureEnd(depth int, output []byte, startGas, endGa
 }
 
 func (l *TransactionTracer) CaptureSelfDestruct(from common.Address, to common.Address, value *big.Int) {
+	last := l.Results[len(l.Results)-1]
+	l.Results = append(l.Results, &TraceEntry{"SELFDESTRUCT", last.Depth + 1, from, to, (*hexutil.Big)(value), nil})
 }
 
 func (l *TransactionTracer) CaptureAccountRead(account common.Address) error {
