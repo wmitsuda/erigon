@@ -22,6 +22,8 @@ import (
 	otterscan "github.com/ledgerwatch/erigon/otterscan/transactions"
 	"github.com/ledgerwatch/erigon/params"
 	"github.com/ledgerwatch/erigon/rpc"
+	"github.com/ledgerwatch/erigon/turbo/adapter"
+	"github.com/ledgerwatch/erigon/turbo/rpchelper"
 	"github.com/ledgerwatch/erigon/turbo/shards"
 	"github.com/ledgerwatch/erigon/turbo/transactions"
 	"github.com/ledgerwatch/log/v3"
@@ -30,7 +32,7 @@ import (
 )
 
 // API_LEVEL Must be incremented every time new additions are made
-const API_LEVEL = 3
+const API_LEVEL = 4
 
 type SearchResult struct {
 	BlockNumber uint64
@@ -54,6 +56,7 @@ type OtterscanAPI interface {
 	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
 	GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error)
 	GetBlockTransactions(ctx context.Context, number rpc.BlockNumber, pageNumber uint8, pageSize uint8) (map[string]interface{}, error)
+	HasCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (bool, error)
 	TraceTransaction(ctx context.Context, hash common.Hash) ([]*otterscan.TraceEntry, error)
 }
 
@@ -717,6 +720,26 @@ func (api *OtterscanAPIImpl) GetBlockTransactions(ctx context.Context, number rp
 	response["fullblock"] = getBlockRes
 	response["receipts"] = result[pageStart:pageEnd]
 	return response, nil
+}
+
+func (api *OtterscanAPIImpl) HasCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (bool, error) {
+	tx, err := api.db.BeginRo(ctx)
+	if err != nil {
+		return false, fmt.Errorf("hasCode cannot open tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	blockNumber, _, err := rpchelper.GetBlockNumber(blockNrOrHash, tx, api.filters)
+	if err != nil {
+		return false, err
+	}
+
+	reader := adapter.NewStateReader(tx, blockNumber)
+	acc, err := reader.ReadAccountData(address)
+	if err != nil {
+		return false, err
+	}
+	return !acc.IsEmptyCodeHash(), nil
 }
 
 func (api *OtterscanAPIImpl) TraceTransaction(ctx context.Context, hash common.Hash) ([]*otterscan.TraceEntry, error) {
