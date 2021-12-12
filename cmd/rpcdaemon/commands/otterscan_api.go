@@ -32,7 +32,7 @@ import (
 )
 
 // API_LEVEL Must be incremented every time new additions are made
-const API_LEVEL = 4
+const API_LEVEL = 5
 
 type SearchResult struct {
 	BlockNumber uint64
@@ -58,6 +58,7 @@ type OtterscanAPI interface {
 	GetBlockTransactions(ctx context.Context, number rpc.BlockNumber, pageNumber uint8, pageSize uint8) (map[string]interface{}, error)
 	HasCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (bool, error)
 	TraceTransaction(ctx context.Context, hash common.Hash) ([]*otterscan.TraceEntry, error)
+	GetTransactionError(ctx context.Context, hash common.Hash) (hexutil.Bytes, error)
 }
 
 type OtterscanAPIImpl struct {
@@ -783,4 +784,47 @@ func (api *OtterscanAPIImpl) TraceTransaction(ctx context.Context, hash common.H
 	}
 
 	return tracer.Results, nil
+}
+
+func (api *OtterscanAPIImpl) GetTransactionError(ctx context.Context, hash common.Hash) (hexutil.Bytes, error) {
+	tx, err := api.db.BeginRo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	txn, blockHash, _, txIndex, err := rawdb.ReadTransaction(tx, hash)
+	if err != nil {
+		return nil, err
+	}
+	if txn == nil {
+		return nil, fmt.Errorf("transaction %#x not found", hash)
+	}
+	block, err := rawdb.ReadBlockByHash(tx, blockHash)
+	if err != nil {
+		return nil, err
+	}
+
+	chainConfig, err := api.chainConfig(tx)
+	if err != nil {
+		return nil, err
+	}
+
+	getHeader := func(hash common.Hash, number uint64) *types.Header {
+		return rawdb.ReadHeader(tx, hash, number)
+	}
+	checkTEVM := ethdb.GetHasTEVM(tx)
+	msg, blockCtx, txCtx, ibs, _, err := transactions.ComputeTxEnv(ctx, block, chainConfig, getHeader, checkTEVM, ethash.NewFaker(), tx, blockHash, txIndex)
+	if err != nil {
+		return nil, err
+	}
+
+	vmenv := vm.NewEVM(blockCtx, txCtx, ibs, chainConfig, vm.Config{})
+
+	result, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), true, false /* gasBailout */)
+	if err != nil {
+		return nil, fmt.Errorf("tracing failed: %v", err)
+	}
+
+	return result.Revert(), nil
 }
