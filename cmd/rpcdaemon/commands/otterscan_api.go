@@ -737,7 +737,7 @@ func (api *OtterscanAPIImpl) HasCode(ctx context.Context, address common.Address
 
 	reader := adapter.NewStateReader(tx, blockNumber)
 	acc, err := reader.ReadAccountData(address)
-	if err != nil {
+	if acc == nil || err != nil {
 		return false, err
 	}
 	return !acc.IsEmptyCodeHash(), nil
