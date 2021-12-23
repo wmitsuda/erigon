@@ -32,6 +32,7 @@ func APIList(ctx context.Context, db kv.RoDB,
 	web3Impl := NewWeb3APIImpl(eth)
 	dbImpl := NewDBAPIImpl() /* deprecated */
 	adminImpl := NewAdminAPI(eth)
+	otsImpl := NewOtterscanAPI(base, db)
 
 	for _, enabledAPI := range cfg.API {
 		switch enabledAPI {
@@ -96,6 +97,13 @@ func APIList(ctx context.Context, db kv.RoDB,
 				Namespace: "admin",
 				Public:    false,
 				Service:   AdminAPI(adminImpl),
+				Version:   "1.0",
+			})
+		case "ots":
+			defaultAPIList = append(defaultAPIList, rpc.API{
+				Namespace: "ots",
+				Public:    true,
+				Service:   OtterscanAPI(otsImpl),
 				Version:   "1.0",
 			})
 		}
