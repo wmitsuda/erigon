@@ -6,6 +6,10 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"math/big"
+	"sort"
+	"sync"
+
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/holiman/uint256"
 	"github.com/ledgerwatch/erigon-lib/kv"
@@ -27,12 +31,10 @@ import (
 	"github.com/ledgerwatch/erigon/turbo/shards"
 	"github.com/ledgerwatch/erigon/turbo/transactions"
 	"github.com/ledgerwatch/log/v3"
-	"math/big"
-	"sync"
 )
 
 // API_LEVEL Must be incremented every time new additions are made
-const API_LEVEL = 5
+const API_LEVEL = 6
 
 type SearchResult struct {
 	BlockNumber uint64
@@ -59,6 +61,7 @@ type OtterscanAPI interface {
 	HasCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (bool, error)
 	TraceTransaction(ctx context.Context, hash common.Hash) ([]*otterscan.TraceEntry, error)
 	GetTransactionError(ctx context.Context, hash common.Hash) (hexutil.Bytes, error)
+	GetTransactionByAddressAndNonce(ctx context.Context, addr common.Address, nonce uint64) (common.Hash, error)
 }
 
 type OtterscanAPIImpl struct {
@@ -827,4 +830,130 @@ func (api *OtterscanAPIImpl) GetTransactionError(ctx context.Context, hash commo
 	}
 
 	return result.Revert(), nil
+}
+
+func (api *OtterscanAPIImpl) GetTransactionByAddressAndNonce(ctx context.Context, addr common.Address, nonce uint64) (common.Hash, error) {
+	tx, err := api.db.BeginRo(ctx)
+	if err != nil {
+		return common.Hash{}, fmt.Errorf("getTransactionByAddressAndNonce cannot open tx: %w", err)
+	}
+	defer tx.Rollback()
+
+	fromCursor, err := tx.Cursor(kv.CallFromIndex)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	defer fromCursor.Close()
+
+	// Locate which shard contains the tx with the desired nonce
+	search := make([]byte, common.AddressLength+8)
+	copy(search[:common.AddressLength], addr.Bytes())
+	binary.BigEndian.PutUint64(search[common.AddressLength:], uint64(0))
+
+	k, v, err := fromCursor.Seek(search)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
+		return common.Hash{}, nil
+	}
+
+	bitmap := roaring64.New()
+	if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
+		return common.Hash{}, err
+	}
+	// log.Info("SHARD", "cardinality", bitmap.GetCardinality())
+
+	c := 0
+	for {
+		maxBlock := bitmap.Maximum()
+		maxBlockAfterNonce, err := GetNonceAfterBlock(tx, addr, maxBlock)
+		if err != nil {
+			return common.Hash{}, nil
+		}
+
+		// Tx with desired nonce is in this shard
+		if maxBlockAfterNonce >= nonce {
+			break
+		}
+
+		// Try and check next shard
+		k, v, err := fromCursor.Next()
+		if err != nil {
+			return common.Hash{}, err
+		}
+		if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
+			return common.Hash{}, nil
+		}
+
+		if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
+			return common.Hash{}, err
+		}
+		// log.Info("SHARD", "cardinality", bitmap.GetCardinality())
+	}
+
+	// Locate which block inside the shard contains the desired nonce
+	blocks := bitmap.ToArray()
+	blockIndex := sort.Search(len(blocks), func(i int) bool {
+		c++
+		// log.Info("BLOCKNUM", "c", c, "b", blocks[i])
+
+		// TODO: handle error
+		afterNonce, err := GetNonceAfterBlock(tx, addr, blocks[i])
+		if err != nil {
+			return false
+		}
+		return afterNonce >= nonce
+	})
+
+	// Not found
+	if blockIndex == len(blocks) {
+		return common.Hash{}, nil
+	}
+	blockNum := blocks[blockIndex]
+	// log.Info("STATEREADER", "b", blockNum, "nonce", afterNonce)
+
+	// Inspect the block; find tx corresponding to desired nonce
+	found, hash, err := FindNonce(tx, addr, nonce, blockNum)
+	if err != nil {
+		return common.Hash{}, err
+	}
+	if found {
+		return hash, nil
+	}
+
+	return common.Hash{}, nil
+}
+
+func GetNonceAfterBlock(tx kv.Tx, addr common.Address, blockNum uint64) (uint64, error) {
+	reader := adapter.NewStateReader(tx, blockNum)
+	acc, err := reader.ReadAccountData(addr)
+	if acc == nil || err != nil {
+		return 0, err
+	}
+	return acc.Nonce, nil
+}
+
+func FindNonce(tx kv.Tx, addr common.Address, nonce uint64, blockNum uint64) (bool, common.Hash, error) {
+	hash, err := rawdb.ReadCanonicalHash(tx, blockNum)
+	if err != nil {
+		return false, common.Hash{}, err
+	}
+	senders, err := rawdb.ReadSenders(tx, hash, blockNum)
+	if err != nil {
+		return false, common.Hash{}, err
+	}
+	body := rawdb.ReadBodyWithTransactions(tx, hash, blockNum)
+
+	for i, s := range senders {
+		if s == addr {
+			trans := body.Transactions[i]
+			if trans.GetNonce() == nonce {
+				log.Info("Found EXACT", "b", blockNum, "nonce", trans.GetNonce(), "tx", trans.Hash())
+				return true, trans.Hash(), nil
+			}
+		}
+	}
+
+	return false, common.Hash{}, nil
 }
