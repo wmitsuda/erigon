@@ -61,7 +61,7 @@ type OtterscanAPI interface {
 	HasCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (bool, error)
 	TraceTransaction(ctx context.Context, hash common.Hash) ([]*otterscan.TraceEntry, error)
 	GetTransactionError(ctx context.Context, hash common.Hash) (hexutil.Bytes, error)
-	GetTransactionByAddressAndNonce(ctx context.Context, addr common.Address, nonce uint64) (common.Hash, error)
+	GetTransactionBySenderAndNonce(ctx context.Context, addr common.Address, nonce uint64) (common.Hash, error)
 }
 
 type OtterscanAPIImpl struct {
@@ -832,7 +832,7 @@ func (api *OtterscanAPIImpl) GetTransactionError(ctx context.Context, hash commo
 	return result.Revert(), nil
 }
 
-func (api *OtterscanAPIImpl) GetTransactionByAddressAndNonce(ctx context.Context, addr common.Address, nonce uint64) (common.Hash, error) {
+func (api *OtterscanAPIImpl) GetTransactionBySenderAndNonce(ctx context.Context, addr common.Address, nonce uint64) (common.Hash, error) {
 	tx, err := api.db.BeginRo(ctx)
 	if err != nil {
 		return common.Hash{}, fmt.Errorf("getTransactionByAddressAndNonce cannot open tx: %w", err)
