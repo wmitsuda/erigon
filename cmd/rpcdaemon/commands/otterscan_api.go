@@ -61,7 +61,7 @@ type OtterscanAPI interface {
 	HasCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (bool, error)
 	TraceTransaction(ctx context.Context, hash common.Hash) ([]*otterscan.TraceEntry, error)
 	GetTransactionError(ctx context.Context, hash common.Hash) (hexutil.Bytes, error)
-	GetTransactionBySenderAndNonce(ctx context.Context, addr common.Address, nonce uint64) (common.Hash, error)
+	GetTransactionBySenderAndNonce(ctx context.Context, addr common.Address, nonce uint64) (*common.Hash, error)
 }
 
 type OtterscanAPIImpl struct {
@@ -832,16 +832,16 @@ func (api *OtterscanAPIImpl) GetTransactionError(ctx context.Context, hash commo
 	return result.Revert(), nil
 }
 
-func (api *OtterscanAPIImpl) GetTransactionBySenderAndNonce(ctx context.Context, addr common.Address, nonce uint64) (common.Hash, error) {
+func (api *OtterscanAPIImpl) GetTransactionBySenderAndNonce(ctx context.Context, addr common.Address, nonce uint64) (*common.Hash, error) {
 	tx, err := api.db.BeginRo(ctx)
 	if err != nil {
-		return common.Hash{}, fmt.Errorf("getTransactionByAddressAndNonce cannot open tx: %w", err)
+		return nil, fmt.Errorf("ots_getTransactionBySenderAndNonce cannot open tx: %w", err)
 	}
 	defer tx.Rollback()
 
 	fromCursor, err := tx.Cursor(kv.CallFromIndex)
 	if err != nil {
-		return common.Hash{}, err
+		return nil, err
 	}
 	defer fromCursor.Close()
 
@@ -852,24 +852,22 @@ func (api *OtterscanAPIImpl) GetTransactionBySenderAndNonce(ctx context.Context,
 
 	k, v, err := fromCursor.Seek(search)
 	if err != nil {
-		return common.Hash{}, err
+		return nil, err
 	}
 	if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
-		return common.Hash{}, nil
+		return nil, nil
 	}
 
 	bitmap := roaring64.New()
 	if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
-		return common.Hash{}, err
+		return nil, err
 	}
-	// log.Info("SHARD", "cardinality", bitmap.GetCardinality())
 
-	c := 0
 	for {
 		maxBlock := bitmap.Maximum()
 		maxBlockAfterNonce, err := GetNonceAfterBlock(tx, addr, maxBlock)
 		if err != nil {
-			return common.Hash{}, nil
+			return nil, nil
 		}
 
 		// Tx with desired nonce is in this shard
@@ -880,49 +878,44 @@ func (api *OtterscanAPIImpl) GetTransactionBySenderAndNonce(ctx context.Context,
 		// Try and check next shard
 		k, v, err := fromCursor.Next()
 		if err != nil {
-			return common.Hash{}, err
+			return nil, err
 		}
 		if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
-			return common.Hash{}, nil
+			return nil, nil
 		}
 
 		if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
-			return common.Hash{}, err
+			return nil, err
 		}
-		// log.Info("SHARD", "cardinality", bitmap.GetCardinality())
 	}
 
 	// Locate which block inside the shard contains the desired nonce
 	blocks := bitmap.ToArray()
 	blockIndex := sort.Search(len(blocks), func(i int) bool {
-		c++
-		// log.Info("BLOCKNUM", "c", c, "b", blocks[i])
-
 		// TODO: handle error
 		afterNonce, err := GetNonceAfterBlock(tx, addr, blocks[i])
 		if err != nil {
 			return false
 		}
-		return afterNonce >= nonce
+		return afterNonce > nonce
 	})
 
 	// Not found
 	if blockIndex == len(blocks) {
-		return common.Hash{}, nil
+		return nil, nil
 	}
 	blockNum := blocks[blockIndex]
-	// log.Info("STATEREADER", "b", blockNum, "nonce", afterNonce)
 
 	// Inspect the block; find tx corresponding to desired nonce
 	found, hash, err := FindNonce(tx, addr, nonce, blockNum)
 	if err != nil {
-		return common.Hash{}, err
+		return nil, err
 	}
 	if found {
-		return hash, nil
+		return &hash, nil
 	}
 
-	return common.Hash{}, nil
+	return nil, nil
 }
 
 func GetNonceAfterBlock(tx kv.Tx, addr common.Address, blockNum uint64) (uint64, error) {
@@ -949,7 +942,6 @@ func FindNonce(tx kv.Tx, addr common.Address, nonce uint64, blockNum uint64) (bo
 		if s == addr {
 			trans := body.Transactions[i]
 			if trans.GetNonce() == nonce {
-				log.Info("Found EXACT", "b", blockNum, "nonce", trans.GetNonce(), "tx", trans.Hash())
 				return true, trans.Hash(), nil
 			}
 		}
