@@ -952,7 +952,6 @@ func (api *OtterscanAPIImpl) GetTransactionBySenderAndNonce(ctx context.Context,
 		return nil, err
 	}
 	if !found {
-		// TODO: this should indicate an actual error in this method
 		return nil, nil
 	}
 
