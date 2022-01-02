@@ -14,12 +14,14 @@ import (
 	"github.com/holiman/uint256"
 	"github.com/ledgerwatch/erigon-lib/kv"
 	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/common/changeset"
 	"github.com/ledgerwatch/erigon/common/hexutil"
 	"github.com/ledgerwatch/erigon/consensus/ethash"
 	"github.com/ledgerwatch/erigon/core"
 	"github.com/ledgerwatch/erigon/core/rawdb"
 	"github.com/ledgerwatch/erigon/core/state"
 	"github.com/ledgerwatch/erigon/core/types"
+	"github.com/ledgerwatch/erigon/core/types/accounts"
 	"github.com/ledgerwatch/erigon/core/vm"
 	"github.com/ledgerwatch/erigon/ethdb"
 	"github.com/ledgerwatch/erigon/internal/ethapi"
@@ -835,99 +837,129 @@ func (api *OtterscanAPIImpl) GetTransactionError(ctx context.Context, hash commo
 func (api *OtterscanAPIImpl) GetTransactionBySenderAndNonce(ctx context.Context, addr common.Address, nonce uint64) (*common.Hash, error) {
 	tx, err := api.db.BeginRo(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("ots_getTransactionBySenderAndNonce cannot open tx: %w", err)
+		return nil, err
 	}
 	defer tx.Rollback()
 
-	fromCursor, err := tx.Cursor(kv.CallFromIndex)
+	accHistoryC, err := tx.Cursor(kv.AccountsHistory)
 	if err != nil {
 		return nil, err
 	}
-	defer fromCursor.Close()
+	defer accHistoryC.Close()
 
-	// Locate which shard contains the tx with the desired nonce
-	search := make([]byte, common.AddressLength+8)
-	copy(search[:common.AddressLength], addr.Bytes())
-	binary.BigEndian.PutUint64(search[common.AddressLength:], uint64(0))
-
-	k, v, err := fromCursor.Seek(search)
+	accChangesC, err := tx.CursorDupSort(kv.AccountChangeSet)
 	if err != nil {
 		return nil, err
 	}
-	if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
-		return nil, nil
+	defer accChangesC.Close()
+
+	// Locate the chunk where the nonce happens
+	acs := changeset.Mapper[kv.AccountChangeSet]
+	k, v, err := accHistoryC.Seek(acs.IndexChunkKey(addr.Bytes(), 0))
+	if err != nil {
+		return nil, err
 	}
 
 	bitmap := roaring64.New()
-	if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
-		return nil, err
-	}
+	maxBlPrevChunk := uint64(0)
+	var acc accounts.Account
 
 	for {
-		maxBlock := bitmap.Maximum()
-		maxBlockAfterNonce, err := GetNonceAfterBlock(tx, addr, maxBlock)
-		if err != nil {
+		if k == nil || !bytes.HasPrefix(k, addr.Bytes()) {
+			// Check plain state
+			data, err := tx.GetOne(kv.PlainState, addr.Bytes())
+			if err != nil {
+				return nil, err
+			}
+			if err := acc.DecodeForStorage(data); err != nil {
+				return nil, err
+			}
+
+			// Nonce changed in plain state, so it means the last block of last chunk
+			// contains the actual nonce change
+			if acc.Nonce > nonce {
+				break
+			}
+
+			// Not found; asked for nonce still not used
 			return nil, nil
 		}
 
-		// Tx with desired nonce is in this shard
-		if maxBlockAfterNonce >= nonce {
-			break
-		}
-
-		// Try and check next shard
-		k, v, err := fromCursor.Next()
-		if err != nil {
-			return nil, err
-		}
-		if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
-			return nil, nil
-		}
-
+		// Inspect block changeset
 		if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
 			return nil, err
 		}
+		maxBl := bitmap.Maximum()
+		data, err := acs.Find(accChangesC, maxBl, addr.Bytes())
+		if err != nil {
+			return nil, err
+		}
+		if err := acc.DecodeForStorage(data); err != nil {
+			return nil, err
+		}
+
+		// Desired nonce was found in this chunk
+		if acc.Nonce > nonce {
+			break
+		}
+
+		maxBlPrevChunk = maxBl
+		k, v, err = accHistoryC.Next()
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	// Locate which block inside the shard contains the desired nonce
+	// Locate the exact block inside chunk when the nonce changed
 	blocks := bitmap.ToArray()
-	blockIndex := sort.Search(len(blocks), func(i int) bool {
-		// TODO: handle error
-		afterNonce, err := GetNonceAfterBlock(tx, addr, blocks[i])
-		if err != nil {
+	var errSearch error = nil
+	idx := sort.Search(len(blocks), func(i int) bool {
+		if errSearch != nil {
 			return false
 		}
-		return afterNonce > nonce
+
+		// Locate the block changeset
+		data, err := acs.Find(accChangesC, blocks[i], addr.Bytes())
+		if err != nil {
+			errSearch = err
+			return false
+		}
+
+		if err := acc.DecodeForStorage(data); err != nil {
+			errSearch = err
+			return false
+		}
+
+		// Since the state contains the nonce BEFORE the block changes, we look for
+		// the block when the nonce changed to be > the desired once, which means the
+		// previous history block contains the actual change; it may contain multiple
+		// nonce changes.
+		return acc.Nonce > nonce
 	})
-
-	// Not found
-	if blockIndex == len(blocks) {
-		return nil, nil
+	if errSearch != nil {
+		return nil, errSearch
 	}
-	blockNum := blocks[blockIndex]
 
-	// Inspect the block; find tx corresponding to desired nonce
-	found, hash, err := FindNonce(tx, addr, nonce, blockNum)
+	// Since the changeset contains the state BEFORE the change, we inspect
+	// the block before the one we found; if it is the first block inside the chunk,
+	// we use the last block from prev chunk
+	nonceBlock := maxBlPrevChunk
+	if idx > 0 {
+		nonceBlock = blocks[idx-1]
+	}
+	found, txHash, err := findNonce(tx, addr, nonce, nonceBlock)
 	if err != nil {
 		return nil, err
 	}
-	if found {
-		return &hash, nil
+	if !found {
+		// TODO: this should indicate an actual error in this method
+		return nil, nil
 	}
 
-	return nil, nil
+	return &txHash, nil
 }
 
-func GetNonceAfterBlock(tx kv.Tx, addr common.Address, blockNum uint64) (uint64, error) {
-	reader := adapter.NewStateReader(tx, blockNum)
-	acc, err := reader.ReadAccountData(addr)
-	if acc == nil || err != nil {
-		return 0, err
-	}
-	return acc.Nonce, nil
-}
-
-func FindNonce(tx kv.Tx, addr common.Address, nonce uint64, blockNum uint64) (bool, common.Hash, error) {
+func findNonce(tx kv.Tx, addr common.Address, nonce uint64, blockNum uint64) (bool, common.Hash, error) {
 	hash, err := rawdb.ReadCanonicalHash(tx, blockNum)
 	if err != nil {
 		return false, common.Hash{}, err
@@ -939,11 +971,13 @@ func FindNonce(tx kv.Tx, addr common.Address, nonce uint64, blockNum uint64) (bo
 	body := rawdb.ReadBodyWithTransactions(tx, hash, blockNum)
 
 	for i, s := range senders {
-		if s == addr {
-			trans := body.Transactions[i]
-			if trans.GetNonce() == nonce {
-				return true, trans.Hash(), nil
-			}
+		if s != addr {
+			continue
+		}
+
+		t := body.Transactions[i]
+		if t.GetNonce() == nonce {
+			return true, t.Hash(), nil
 		}
 	}
 
