@@ -167,7 +167,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 		}
 
 		var wg sync.WaitGroup
-		results := make([]*TransactionsWithReceipts, 100, 100)
+		results := make([]*TransactionsWithReceipts, 100)
 		tot := 0
 		for i := 0; i < int(minPageSize-resultCount); i++ {
 			var blockNum uint64
@@ -308,7 +308,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 		}
 
 		var wg sync.WaitGroup
-		results := make([]*TransactionsWithReceipts, 100, 100)
+		results := make([]*TransactionsWithReceipts, 100)
 		tot := 0
 		for i := 0; i < int(minPageSize-resultCount); i++ {
 			var blockNum uint64
