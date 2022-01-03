@@ -38,14 +38,6 @@ import (
 // API_LEVEL Must be incremented every time new additions are made
 const API_LEVEL = 6
 
-type SearchResult struct {
-	BlockNumber uint64
-}
-
-type BlockSearchResult struct {
-	hash common.Hash
-}
-
 type TransactionsWithReceipts struct {
 	Txs       []*RPCTransaction        `json:"txs"`
 	Receipts  []map[string]interface{} `json:"receipts"`
