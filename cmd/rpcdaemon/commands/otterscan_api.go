@@ -344,11 +344,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 func newSearchForwardIterator(cursor kv.Cursor, addr common.Address, minBlock uint64) func() (uint64, bool, error) {
 	search := make([]byte, common.AddressLength+8)
 	copy(search[:common.AddressLength], addr.Bytes())
-	if minBlock == 0 {
-		binary.BigEndian.PutUint64(search[common.AddressLength:], uint64(0))
-	} else {
-		binary.BigEndian.PutUint64(search[common.AddressLength:], minBlock)
-	}
+	binary.BigEndian.PutUint64(search[common.AddressLength:], minBlock)
 
 	first := true
 	var iter roaring64.IntIterable64
