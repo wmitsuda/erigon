@@ -268,16 +268,17 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	}
 	defer dbtx.Rollback()
 
-	fromCursor, err := dbtx.Cursor(kv.CallFromIndex)
+	callFromCursor, err := dbtx.Cursor(kv.CallFromIndex)
 	if err != nil {
 		return nil, err
 	}
-	defer fromCursor.Close()
-	toCursor, err := dbtx.Cursor(kv.CallToIndex)
+	defer callFromCursor.Close()
+
+	callToCursor, err := dbtx.Cursor(kv.CallToIndex)
 	if err != nil {
 		return nil, err
 	}
-	defer toCursor.Close()
+	defer callToCursor.Close()
 
 	chainConfig, err := api.chainConfig(dbtx)
 	if err != nil {
@@ -286,8 +287,8 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 
 	// Initialize search cursors at the first shard >= desired block number
 	resultCount := uint16(0)
-	fromIter := newSearchForwardIterator(fromCursor, addr, blockNum)
-	toIter := newSearchForwardIterator(toCursor, addr, blockNum)
+	fromIter := newSearchForwardIterator(callFromCursor, addr, blockNum)
+	toIter := newSearchForwardIterator(callToCursor, addr, blockNum)
 
 	txs := make([]*RPCTransaction, 0)
 	receipts := make([]map[string]interface{}, 0)
@@ -350,6 +351,7 @@ func newSearchForwardIterator(cursor kv.Cursor, addr common.Address, minBlock ui
 }
 
 func newMultiIterator(smaller bool, fromIter, toIter BlockProvider) (BlockProvider, error) {
+	// TODO: move this inside the closure; remove error from sig
 	nextFrom, hasMoreFrom, err := fromIter()
 	if err != nil {
 		return nil, err
