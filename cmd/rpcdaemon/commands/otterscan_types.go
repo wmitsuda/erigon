@@ -47,7 +47,7 @@ func NewForwardChunkLocator(cursor kv.Cursor, addr common.Address, minBlock uint
 		if err != nil {
 			return nil, false, err
 		}
-		if !bytes.Equal(kp[:common.AddressLength], addr.Bytes()) {
+		if !bytes.HasPrefix(kp, addr.Bytes()) {
 			// It is in the current chunk
 			_, _, err = cursor.Next()
 			if err != nil {
@@ -85,7 +85,7 @@ func NewForwardChunkProvider(cursor kv.Cursor, addr common.Address, minBlock uin
 			eof = true
 			return nil, false, err
 		}
-		if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
+		if !bytes.HasPrefix(k, addr.Bytes()) {
 			eof = true
 			return nil, false, nil
 		}
