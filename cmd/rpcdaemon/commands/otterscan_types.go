@@ -26,6 +26,10 @@ type ChunkProvider func() (chunk []byte, ok bool, err error)
 
 type BlockProvider func() (nextBlock uint64, hasMore bool, err error)
 
+// This ChunkLocator searches over a cursor with a key format of [common.Address, block uint64],
+// where block is the first block number contained in the chunk value.
+//
+// It positions the cursor on the chunk that contains the first block >= minBlock.
 func NewForwardChunkLocator(cursor kv.Cursor, addr common.Address, minBlock uint64) ChunkLocator {
 	return func(block uint64) (ChunkProvider, bool, error) {
 		search := make([]byte, common.AddressLength+8)
@@ -39,7 +43,7 @@ func NewForwardChunkLocator(cursor kv.Cursor, addr common.Address, minBlock uint
 
 		// Exact match?
 		if bytes.Equal(k, search) {
-			return NewForwardChunkProvider(cursor, addr, minBlock), true, nil
+			return newForwardChunkProvider(cursor, addr, minBlock), true, nil
 		}
 
 		// It maybe the previous chunk
@@ -53,15 +57,17 @@ func NewForwardChunkLocator(cursor kv.Cursor, addr common.Address, minBlock uint
 			if err != nil {
 				return nil, false, err
 			}
-			return NewForwardChunkProvider(cursor, addr, minBlock), true, nil
+			return newForwardChunkProvider(cursor, addr, minBlock), true, nil
 		}
 
 		// It is in the previous chunk
-		return NewForwardChunkProvider(cursor, addr, minBlock), true, nil
+		return newForwardChunkProvider(cursor, addr, minBlock), true, nil
 	}
 }
 
-func NewForwardChunkProvider(cursor kv.Cursor, addr common.Address, minBlock uint64) ChunkProvider {
+// This ChunkProvider is built by NewForwardChunkLocator and advances the cursor forward until
+// there is no more chunks for the desired addr.
+func newForwardChunkProvider(cursor kv.Cursor, addr common.Address, minBlock uint64) ChunkProvider {
 	first := true
 	var err error
 	eof := false
@@ -93,6 +99,8 @@ func NewForwardChunkProvider(cursor kv.Cursor, addr common.Address, minBlock uin
 	}
 }
 
+// Given a ChunkLocator, moves forward over the chunks and inside each chunk, moves
+// forward over the block numbers.
 func NewForwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProvider {
 	var iter roaring64.IntPeekable64
 	var chunkProvider ChunkProvider
@@ -127,18 +135,15 @@ func NewForwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProvi
 				return 0, false, err
 			}
 			iter = bm.Iterator()
+
+			// It can happen that on the first chunk we'll get a chunk that contains
+			// the first block >= minBlock in the middle of the chunk/bitmap, so we
+			// skip all previous blocks before it.
+			iter.AdvanceIfNeeded(block)
 		}
 
 		nextBlock := iter.Next()
 		hasNext := iter.HasNext()
-		for {
-			if nextBlock >= block || !hasNext {
-				break
-			}
-			nextBlock = iter.Next()
-			hasNext = iter.HasNext()
-		}
-
 		if !hasNext {
 			// Check if there is another chunk to get blocks from
 			chunk, ok, err := chunkProvider()
