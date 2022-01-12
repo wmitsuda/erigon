@@ -200,7 +200,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 	return &TransactionsWithReceipts{txs, receipts, blockNum == 0, eof}, nil
 }
 
-func newSearchBackIterator(cursor kv.Cursor, addr common.Address, maxBlock uint64) func() (uint64, bool, error) {
+func newSearchBackIterator(cursor kv.Cursor, addr common.Address, maxBlock uint64) func() (nextBlock uint64, eof bool, err error) {
 	search := make([]byte, common.AddressLength+8)
 	copy(search[:common.AddressLength], addr.Bytes())
 	if maxBlock == 0 {
@@ -258,6 +258,9 @@ func newSearchBackIterator(cursor kv.Cursor, addr common.Address, maxBlock uint6
 	}
 }
 
+// Search transactions that touch a certain address.
+//
+// It searches forward a certain block (including); the results are sorted descending.
 func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error) {
 	dbtx, err := api.db.BeginRo(ctx)
 	if err != nil {
@@ -293,9 +296,9 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	if err != nil {
 		return nil, err
 	}
-	eof := false
+	hasMore := true
 	for {
-		if resultCount >= minPageSize || eof {
+		if resultCount >= minPageSize || !hasMore {
 			break
 		}
 
@@ -304,11 +307,11 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 		tot := 0
 		for i := 0; i < int(minPageSize-resultCount); i++ {
 			var blockNum uint64
-			blockNum, eof, err = multiIter()
+			blockNum, hasMore, err = multiIter()
 			if err != nil {
 				return nil, err
 			}
-			if eof {
+			if !hasMore {
 				break
 			}
 
@@ -338,108 +341,61 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 		}
 	}
 
-	return &TransactionsWithReceipts{txs, receipts, eof, blockNum == 0}, nil
+	return &TransactionsWithReceipts{txs, receipts, !hasMore, blockNum == 0}, nil
 }
 
-func newSearchForwardIterator(cursor kv.Cursor, addr common.Address, minBlock uint64) func() (uint64, bool, error) {
-	search := make([]byte, common.AddressLength+8)
-	copy(search[:common.AddressLength], addr.Bytes())
-	binary.BigEndian.PutUint64(search[common.AddressLength:], minBlock)
-
-	first := true
-	var iter roaring64.IntIterable64
-
-	return func() (uint64, bool, error) {
-		if first {
-			first = false
-			k, v, err := cursor.Seek(search)
-			if err != nil {
-				return 0, true, err
-			}
-			if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
-				return 0, true, nil
-			}
-
-			bitmap := roaring64.New()
-			if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
-				return 0, true, err
-			}
-			iter = bitmap.Iterator()
-		}
-
-		var blockNum uint64
-		for {
-			if !iter.HasNext() {
-				// Try and check next shard
-				k, v, err := cursor.Next()
-				if err != nil {
-					return 0, true, err
-				}
-				if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
-					return 0, true, nil
-				}
-
-				bitmap := roaring64.New()
-				if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
-					return 0, true, err
-				}
-				iter = bitmap.Iterator()
-			}
-			blockNum = iter.Next()
-
-			if minBlock == 0 || blockNum > minBlock {
-				break
-			}
-		}
-		return blockNum, false, nil
-	}
+func newSearchForwardIterator(cursor kv.Cursor, addr common.Address, minBlock uint64) BlockProvider {
+	chunkLocator := NewForwardChunkLocator(cursor, addr, minBlock)
+	return NewForwardBlockProvider(chunkLocator, minBlock)
 }
 
-func newMultiIterator(smaller bool, fromIter func() (uint64, bool, error), toIter func() (uint64, bool, error)) (func() (uint64, bool, error), error) {
-	nextFrom, fromEnd, err := fromIter()
+func newMultiIterator(smaller bool, fromIter, toIter BlockProvider) (BlockProvider, error) {
+	nextFrom, hasMoreFrom, err := fromIter()
 	if err != nil {
 		return nil, err
 	}
-	nextTo, toEnd, err := toIter()
+	nextTo, hasMoreTo, err := toIter()
 	if err != nil {
 		return nil, err
 	}
 
 	return func() (uint64, bool, error) {
-		if fromEnd && toEnd {
+		if !hasMoreFrom && !hasMoreTo {
 			return 0, true, nil
 		}
 
 		var blockNum uint64
-		if !fromEnd {
+		if !hasMoreFrom {
+			blockNum = nextTo
+		} else if !hasMoreTo {
 			blockNum = nextFrom
-		}
-		if !toEnd {
+		} else {
+			blockNum = nextFrom
 			if smaller {
-				if nextTo < blockNum {
+				if nextTo < nextFrom {
 					blockNum = nextTo
 				}
 			} else {
-				if nextTo > blockNum {
+				if nextTo > nextFrom {
 					blockNum = nextTo
 				}
 			}
 		}
 
 		// Pull next; it may be that from AND to contains the same blockNum
-		if !fromEnd && blockNum == nextFrom {
-			nextFrom, fromEnd, err = fromIter()
+		if hasMoreFrom && blockNum == nextFrom {
+			nextFrom, hasMoreFrom, err = fromIter()
 			if err != nil {
-				return 0, false, err
+				return 0, true, err
 			}
 		}
-		if !toEnd && blockNum == nextTo {
-			nextTo, toEnd, err = toIter()
+		if hasMoreTo && blockNum == nextTo {
+			nextTo, hasMoreTo, err = toIter()
 			if err != nil {
-				return 0, false, err
+				return 0, true, err
 			}
 		}
-		return blockNum, false, nil
+		return blockNum, hasMoreFrom || hasMoreTo, nil
 	}, nil
 }
 
