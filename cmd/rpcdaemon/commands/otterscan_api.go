@@ -117,6 +117,9 @@ func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash com
 	return tracer.Results, nil
 }
 
+// Search transactions that touch a certain address.
+//
+// It searches back a certain block (including); the results are sorted descending.
 func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error) {
 	dbtx, err := api.db.BeginRo(ctx)
 	if err != nil {
@@ -200,7 +203,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 	return &TransactionsWithReceipts{txs, receipts, blockNum == 0, eof}, nil
 }
 
-func newSearchBackIterator(cursor kv.Cursor, addr common.Address, maxBlock uint64) func() (nextBlock uint64, eof bool, err error) {
+func newSearchBackIterator(cursor kv.Cursor, addr common.Address, maxBlock uint64) BlockProvider {
 	search := make([]byte, common.AddressLength+8)
 	copy(search[:common.AddressLength], addr.Bytes())
 	if maxBlock == 0 {
@@ -227,6 +230,7 @@ func newSearchBackIterator(cursor kv.Cursor, addr common.Address, maxBlock uint6
 			if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
 				return 0, true, err
 			}
+			bitmap.RemoveRange(maxBlock+1, ^uint64(0))
 			iter = bitmap.ReverseIterator()
 		}
 

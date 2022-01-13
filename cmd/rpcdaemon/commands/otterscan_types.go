@@ -164,3 +164,76 @@ func NewForwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProvi
 		return nextBlock, hasNext, nil
 	}
 }
+
+// Given a ChunkLocator, moves back over the chunks and inside each chunk, moves
+// backwards over the block numbers.
+func NewBackwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProvider {
+	// block == 0 means no max
+	if block == 0 {
+		block = ^uint64(0)
+	}
+	var iter roaring64.IntIterable64
+	var chunkProvider ChunkProvider
+
+	return func() (uint64, bool, error) {
+		if chunkProvider == nil {
+			var ok bool
+			var err error
+			chunkProvider, ok, err = chunkLocator(block)
+			if err != nil {
+				return 0, false, err
+			}
+			if !ok {
+				return 0, false, nil
+			}
+			if chunkProvider == nil {
+				return 0, false, nil
+			}
+		}
+
+		if iter == nil {
+			chunk, ok, err := chunkProvider()
+			if err != nil {
+				return 0, false, err
+			}
+			if !ok {
+				return 0, false, nil
+			}
+
+			bm := roaring64.NewBitmap()
+			if _, err := bm.ReadFrom(bytes.NewReader(chunk)); err != nil {
+				return 0, false, err
+			}
+
+			// It can happen that on the first chunk we'll get a chunk that contains
+			// the last block <= maxBlock in the middle of the chunk/bitmap, so we
+			// remove all blocks after it (since there is no AdvanceIfNeeded() in
+			// IntIterable64)
+			if block != ^uint64(0) {
+				bm.RemoveRange(block+1, ^uint64(0))
+			}
+			iter = bm.ReverseIterator()
+		}
+
+		nextBlock := iter.Next()
+		hasNext := iter.HasNext()
+		if !hasNext {
+			// Check if there is another chunk to get blocks from
+			chunk, ok, err := chunkProvider()
+			if err != nil {
+				return 0, false, err
+			}
+			if ok {
+				hasNext = true
+
+				bm := roaring64.NewBitmap()
+				if _, err := bm.ReadFrom(bytes.NewReader(chunk)); err != nil {
+					return 0, false, err
+				}
+				iter = bm.ReverseIterator()
+			}
+		}
+
+		return nextBlock, hasNext, nil
+	}
+}
