@@ -1,5 +1,11 @@
 package commands
 
+import (
+	"encoding/binary"
+
+	"github.com/ledgerwatch/erigon/common"
+)
+
 // Bootstrap a function able to locate a series of byte chunks containing
 // related block numbers, starting from a specific block number (greater or equal than).
 type ChunkLocator func(block uint64) (chunkProvider ChunkProvider, ok bool, err error)
@@ -16,3 +22,12 @@ type ChunkLocator func(block uint64) (chunkProvider ChunkProvider, ok bool, err 
 type ChunkProvider func() (chunk []byte, ok bool, err error)
 
 type BlockProvider func() (nextBlock uint64, hasMore bool, err error)
+
+func callIndexKey(addr common.Address, block uint64) []byte {
+	key := make([]byte, common.AddressLength+8)
+	copy(key[:common.AddressLength], addr.Bytes())
+	binary.BigEndian.PutUint64(key[common.AddressLength:], block)
+	return key
+}
+
+const MaxBlockNum = ^uint64(0)

@@ -2,7 +2,6 @@ package commands
 
 import (
 	"bytes"
-	"encoding/binary"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/ledgerwatch/erigon-lib/kv"
@@ -15,11 +14,8 @@ import (
 // It positions the cursor on the chunk that contains the last block <= maxBlock.
 func newBackwardChunkLocator(cursor kv.Cursor, addr common.Address) ChunkLocator {
 	return func(block uint64) (ChunkProvider, bool, error) {
-		search := make([]byte, common.AddressLength+8)
-		copy(search[:common.AddressLength], addr.Bytes())
-		binary.BigEndian.PutUint64(search[common.AddressLength:], block)
-
-		k, _, err := cursor.Seek(search)
+		searchKey := callIndexKey(addr, block)
+		k, _, err := cursor.Seek(searchKey)
 		if err != nil {
 			return nil, false, err
 		}
@@ -31,13 +27,13 @@ func newBackwardChunkLocator(cursor kv.Cursor, addr common.Address) ChunkLocator
 		}
 
 		// Exact match?
-		if bytes.Equal(k, search) {
+		if bytes.Equal(k, searchKey) {
 			return newBackwardChunkProvider(cursor, addr, block), true, nil
 		}
 
 		// If we reached the last addr's chunk (0xffff...), it may contain desired blocks
-		binary.BigEndian.PutUint64(search[common.AddressLength:], ^uint64(0))
-		if bytes.Equal(k, search) {
+		lastAddrKey := callIndexKey(addr, MaxBlockNum)
+		if bytes.Equal(k, lastAddrKey) {
 			return newBackwardChunkProvider(cursor, addr, block), true, nil
 		}
 
@@ -90,7 +86,7 @@ func newBackwardChunkProvider(cursor kv.Cursor, addr common.Address, minBlock ui
 func NewBackwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProvider {
 	// block == 0 means no max
 	if block == 0 {
-		block = ^uint64(0)
+		block = MaxBlockNum
 	}
 	var iter roaring64.IntIterable64
 	var chunkProvider ChunkProvider
@@ -129,8 +125,9 @@ func NewBackwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProv
 			// the last block <= maxBlock in the middle of the chunk/bitmap, so we
 			// remove all blocks after it (since there is no AdvanceIfNeeded() in
 			// IntIterable64)
-			if block != ^uint64(0) {
-				bm.RemoveRange(block+1, ^uint64(0))
+			if block != MaxBlockNum {
+				bm.RemoveRange(block+1, MaxBlockNum)
+				bm.Remove(MaxBlockNum) // because RemoveRange is [start, end)
 			}
 			iter = bm.ReverseIterator()
 		}

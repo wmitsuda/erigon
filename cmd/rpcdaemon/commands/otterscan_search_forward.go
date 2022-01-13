@@ -2,7 +2,6 @@ package commands
 
 import (
 	"bytes"
-	"encoding/binary"
 
 	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/ledgerwatch/erigon-lib/kv"
@@ -15,17 +14,14 @@ import (
 // It positions the cursor on the chunk that contains the first block >= minBlock.
 func newForwardChunkLocator(cursor kv.Cursor, addr common.Address) ChunkLocator {
 	return func(block uint64) (ChunkProvider, bool, error) {
-		search := make([]byte, common.AddressLength+8)
-		copy(search[:common.AddressLength], addr.Bytes())
-		binary.BigEndian.PutUint64(search[common.AddressLength:], block)
-
-		k, _, err := cursor.Seek(search)
+		searchKey := callIndexKey(addr, block)
+		k, _, err := cursor.Seek(searchKey)
 		if err != nil {
 			return nil, false, err
 		}
 
 		// Exact match?
-		if bytes.Equal(k, search) {
+		if bytes.Equal(k, searchKey) {
 			return newForwardChunkProvider(cursor, addr, block), true, nil
 		}
 
