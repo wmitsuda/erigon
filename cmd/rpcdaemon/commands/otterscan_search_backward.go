@@ -127,7 +127,6 @@ func NewBackwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProv
 			// IntIterable64)
 			if block != MaxBlockNum {
 				bm.RemoveRange(block+1, MaxBlockNum)
-				bm.Remove(MaxBlockNum) // because RemoveRange is [start, end)
 			}
 			iter = bm.ReverseIterator()
 		}
