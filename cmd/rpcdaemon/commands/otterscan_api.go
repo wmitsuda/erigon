@@ -145,8 +145,8 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 
 	// Initialize search cursors at the first shard >= desired block number
 	resultCount := uint16(0)
-	fromIter := newSearchBackIterator(callFromCursor, addr, blockNum)
-	toIter := newSearchBackIterator(callToCursor, addr, blockNum)
+	fromIter := NewSearchBackIterator(callFromCursor, addr, blockNum)
+	toIter := NewSearchBackIterator(callToCursor, addr, blockNum)
 
 	txs := make([]*RPCTransaction, 0)
 	receipts := make([]map[string]interface{}, 0)
@@ -203,11 +203,6 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 	return &TransactionsWithReceipts{txs, receipts, blockNum == 0, !hasMore}, nil
 }
 
-func newSearchBackIterator(cursor kv.Cursor, addr common.Address, maxBlock uint64) BlockProvider {
-	chunkLocator := NewBackwardChunkLocator(cursor, addr, maxBlock)
-	return NewBackwardBlockProvider(chunkLocator, maxBlock)
-}
-
 // Search transactions that touch a certain address.
 //
 // It searches forward a certain block (including); the results are sorted descending.
@@ -237,8 +232,8 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 
 	// Initialize search cursors at the first shard >= desired block number
 	resultCount := uint16(0)
-	fromIter := newSearchForwardIterator(callFromCursor, addr, blockNum)
-	toIter := newSearchForwardIterator(callToCursor, addr, blockNum)
+	fromIter := NewSearchForwardIterator(callFromCursor, addr, blockNum)
+	toIter := NewSearchForwardIterator(callToCursor, addr, blockNum)
 
 	txs := make([]*RPCTransaction, 0)
 	receipts := make([]map[string]interface{}, 0)
@@ -293,62 +288,6 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	}
 
 	return &TransactionsWithReceipts{txs, receipts, !hasMore, blockNum == 0}, nil
-}
-
-func newSearchForwardIterator(cursor kv.Cursor, addr common.Address, minBlock uint64) BlockProvider {
-	chunkLocator := NewForwardChunkLocator(cursor, addr, minBlock)
-	return NewForwardBlockProvider(chunkLocator, minBlock)
-}
-
-func newMultiIterator(smaller bool, fromIter, toIter BlockProvider) (BlockProvider, error) {
-	// TODO: move this inside the closure; remove error from sig
-	nextFrom, hasMoreFrom, err := fromIter()
-	if err != nil {
-		return nil, err
-	}
-	nextTo, hasMoreTo, err := toIter()
-	if err != nil {
-		return nil, err
-	}
-
-	return func() (uint64, bool, error) {
-		if !hasMoreFrom && !hasMoreTo {
-			return 0, false, nil
-		}
-
-		var blockNum uint64
-		if !hasMoreFrom {
-			blockNum = nextTo
-		} else if !hasMoreTo {
-			blockNum = nextFrom
-		} else {
-			blockNum = nextFrom
-			if smaller {
-				if nextTo < nextFrom {
-					blockNum = nextTo
-				}
-			} else {
-				if nextTo > nextFrom {
-					blockNum = nextTo
-				}
-			}
-		}
-
-		// Pull next; it may be that from AND to contains the same blockNum
-		if hasMoreFrom && blockNum == nextFrom {
-			nextFrom, hasMoreFrom, err = fromIter()
-			if err != nil {
-				return 0, false, err
-			}
-		}
-		if hasMoreTo && blockNum == nextTo {
-			nextTo, hasMoreTo, err = toIter()
-			if err != nil {
-				return 0, false, err
-			}
-		}
-		return blockNum, hasMoreFrom || hasMoreTo, nil
-	}, nil
 }
 
 func (api *OtterscanAPIImpl) traceOneBlock(ctx context.Context, wg *sync.WaitGroup, addr common.Address, chainConfig *params.ChainConfig, idx int, bNum uint64, results []*TransactionsWithReceipts) {
