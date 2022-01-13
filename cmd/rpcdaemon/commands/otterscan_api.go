@@ -200,7 +200,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 		}
 	}
 
-	return &TransactionsWithReceipts{txs, receipts, blockNum == 0, hasMore}, nil
+	return &TransactionsWithReceipts{txs, receipts, blockNum == 0, !hasMore}, nil
 }
 
 func newSearchBackIterator(cursor kv.Cursor, addr common.Address, maxBlock uint64) BlockProvider {
