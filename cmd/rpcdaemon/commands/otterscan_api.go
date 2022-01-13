@@ -141,17 +141,17 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 	}
 
 	// Initialize search cursors at the first shard >= desired block number
-	resultCount := uint16(0)
 	fromIter := NewSearchBackIterator(callFromCursor, addr, blockNum)
 	toIter := NewSearchBackIterator(callToCursor, addr, blockNum)
-
-	txs := make([]*RPCTransaction, 0)
-	receipts := make([]map[string]interface{}, 0)
-
 	multiIter, err := newMultiIterator(false, fromIter, toIter)
 	if err != nil {
 		return nil, err
 	}
+
+	txs := make([]*RPCTransaction, 0)
+	receipts := make([]map[string]interface{}, 0)
+
+	resultCount := uint16(0)
 	hasMore := true
 	for {
 		if resultCount >= minPageSize || !hasMore {
@@ -159,11 +159,11 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 		}
 
 		var wg sync.WaitGroup
-		results := make([]*TransactionsWithReceipts, 100)
 		tot := 0
-		for i := 0; i < int(minPageSize-resultCount); i++ {
-			var blockNum uint64
-			blockNum, hasMore, err = multiIter()
+		blocks2Trace := minPageSize - resultCount
+		results := make([]*TransactionsWithReceipts, blocks2Trace)
+		for i := 0; i < int(blocks2Trace); i++ {
+			nextBlock, hasMore, err := multiIter()
 			if err != nil {
 				return nil, err
 			}
@@ -173,7 +173,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 
 			wg.Add(1)
 			tot++
-			go api.searchTraceBlock(ctx, &wg, addr, chainConfig, i, blockNum, results)
+			go api.searchTraceBlock(ctx, &wg, addr, chainConfig, i, nextBlock, results)
 		}
 		wg.Wait()
 
