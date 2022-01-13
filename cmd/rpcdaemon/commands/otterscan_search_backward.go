@@ -13,17 +13,11 @@ import (
 // where block is the first block number contained in the chunk value.
 //
 // It positions the cursor on the chunk that contains the last block <= maxBlock.
-func newBackwardChunkLocator(cursor kv.Cursor, addr common.Address, maxBlock uint64) ChunkLocator {
-	// block == 0 means no max, search for last address chunk (0xffff...)
-	if maxBlock == 0 {
-		maxBlock = ^uint64(0)
-	}
-
-	// TODO: remove maxBlock param and replace by block from closure?
+func newBackwardChunkLocator(cursor kv.Cursor, addr common.Address) ChunkLocator {
 	return func(block uint64) (ChunkProvider, bool, error) {
 		search := make([]byte, common.AddressLength+8)
 		copy(search[:common.AddressLength], addr.Bytes())
-		binary.BigEndian.PutUint64(search[common.AddressLength:], maxBlock)
+		binary.BigEndian.PutUint64(search[common.AddressLength:], block)
 
 		k, _, err := cursor.Seek(search)
 		if err != nil {
@@ -38,13 +32,13 @@ func newBackwardChunkLocator(cursor kv.Cursor, addr common.Address, maxBlock uin
 
 		// Exact match?
 		if bytes.Equal(k, search) {
-			return newBackwardChunkProvider(cursor, addr, maxBlock), true, nil
+			return newBackwardChunkProvider(cursor, addr, block), true, nil
 		}
 
 		// If we reached the last addr's chunk (0xffff...), it may contain desired blocks
 		binary.BigEndian.PutUint64(search[common.AddressLength:], ^uint64(0))
 		if bytes.Equal(k, search) {
-			return newBackwardChunkProvider(cursor, addr, maxBlock), true, nil
+			return newBackwardChunkProvider(cursor, addr, block), true, nil
 		}
 
 		// It maybe the previous chunk; position it over the previous, but let the prefix to be
@@ -53,7 +47,7 @@ func newBackwardChunkLocator(cursor kv.Cursor, addr common.Address, maxBlock uin
 		if err != nil {
 			return nil, false, err
 		}
-		return newBackwardChunkProvider(cursor, addr, maxBlock), true, nil
+		return newBackwardChunkProvider(cursor, addr, block), true, nil
 	}
 }
 
@@ -165,6 +159,6 @@ func NewBackwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProv
 }
 
 func NewSearchBackIterator(cursor kv.Cursor, addr common.Address, maxBlock uint64) BlockProvider {
-	chunkLocator := newBackwardChunkLocator(cursor, addr, maxBlock)
+	chunkLocator := newBackwardChunkLocator(cursor, addr)
 	return NewBackwardBlockProvider(chunkLocator, maxBlock)
 }

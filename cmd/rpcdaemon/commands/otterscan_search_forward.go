@@ -13,12 +13,11 @@ import (
 // where block is the first block number contained in the chunk value.
 //
 // It positions the cursor on the chunk that contains the first block >= minBlock.
-func newForwardChunkLocator(cursor kv.Cursor, addr common.Address, minBlock uint64) ChunkLocator {
-	// TODO: remove minBlock param and replace by block from closure?
+func newForwardChunkLocator(cursor kv.Cursor, addr common.Address) ChunkLocator {
 	return func(block uint64) (ChunkProvider, bool, error) {
 		search := make([]byte, common.AddressLength+8)
 		copy(search[:common.AddressLength], addr.Bytes())
-		binary.BigEndian.PutUint64(search[common.AddressLength:], minBlock)
+		binary.BigEndian.PutUint64(search[common.AddressLength:], block)
 
 		k, _, err := cursor.Seek(search)
 		if err != nil {
@@ -27,7 +26,7 @@ func newForwardChunkLocator(cursor kv.Cursor, addr common.Address, minBlock uint
 
 		// Exact match?
 		if bytes.Equal(k, search) {
-			return newForwardChunkProvider(cursor, addr, minBlock), true, nil
+			return newForwardChunkProvider(cursor, addr, block), true, nil
 		}
 
 		// It maybe the previous chunk
@@ -41,11 +40,11 @@ func newForwardChunkLocator(cursor kv.Cursor, addr common.Address, minBlock uint
 			if err != nil {
 				return nil, false, err
 			}
-			return newForwardChunkProvider(cursor, addr, minBlock), true, nil
+			return newForwardChunkProvider(cursor, addr, block), true, nil
 		}
 
 		// It is in the previous chunk
-		return newForwardChunkProvider(cursor, addr, minBlock), true, nil
+		return newForwardChunkProvider(cursor, addr, block), true, nil
 	}
 }
 
@@ -150,6 +149,6 @@ func NewForwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProvi
 }
 
 func NewSearchForwardIterator(cursor kv.Cursor, addr common.Address, minBlock uint64) BlockProvider {
-	chunkLocator := newForwardChunkLocator(cursor, addr, minBlock)
+	chunkLocator := newForwardChunkLocator(cursor, addr)
 	return NewForwardBlockProvider(chunkLocator, minBlock)
 }
