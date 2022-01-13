@@ -31,6 +31,7 @@ type BlockProvider func() (nextBlock uint64, hasMore bool, err error)
 //
 // It positions the cursor on the chunk that contains the first block >= minBlock.
 func NewForwardChunkLocator(cursor kv.Cursor, addr common.Address, minBlock uint64) ChunkLocator {
+	// TODO: remove minBlock param and replace by block from closure?
 	return func(block uint64) (ChunkProvider, bool, error) {
 		search := make([]byte, common.AddressLength+8)
 		copy(search[:common.AddressLength], addr.Bytes())
@@ -162,6 +163,88 @@ func NewForwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProvi
 		}
 
 		return nextBlock, hasNext, nil
+	}
+}
+
+// This ChunkLocator searches over a cursor with a key format of [common.Address, block uint64],
+// where block is the first block number contained in the chunk value.
+//
+// It positions the cursor on the chunk that contains the last block <= maxBlock.
+func NewBackwardChunkLocator(cursor kv.Cursor, addr common.Address, maxBlock uint64) ChunkLocator {
+	// block == 0 means no max, search for last address chunk (0xffff...)
+	if maxBlock == 0 {
+		maxBlock = ^uint64(0)
+	}
+
+	// TODO: remove maxBlock param and replace by block from closure?
+	return func(block uint64) (ChunkProvider, bool, error) {
+		search := make([]byte, common.AddressLength+8)
+		copy(search[:common.AddressLength], addr.Bytes())
+		binary.BigEndian.PutUint64(search[common.AddressLength:], maxBlock)
+
+		k, _, err := cursor.Seek(search)
+		if err != nil {
+			return nil, false, err
+		}
+
+		// If the addr prefix is different it means there is not even the last
+		// chunk (0xffff...), so this address has no call index
+		if !bytes.HasPrefix(k, addr.Bytes()) {
+			return nil, false, nil
+		}
+
+		// Exact match?
+		if bytes.Equal(k, search) {
+			return newBackwardChunkProvider(cursor, addr, maxBlock), true, nil
+		}
+
+		// If we reached the last addr's chunk (0xffff...), it may contain desired blocks
+		binary.BigEndian.PutUint64(search[common.AddressLength:], ^uint64(0))
+		if bytes.Equal(k, search) {
+			return newBackwardChunkProvider(cursor, addr, maxBlock), true, nil
+		}
+
+		// It maybe the previous chunk; position it over the previous, but let the prefix to be
+		// checked in the ChunkProvider (peek + prefix check)
+		_, _, err = cursor.Prev()
+		if err != nil {
+			return nil, false, err
+		}
+		return newBackwardChunkProvider(cursor, addr, maxBlock), true, nil
+	}
+}
+
+// This ChunkProvider is built by NewBackwardChunkLocator and advances the cursor backwards until
+// there is no more chunks for the desired addr.
+func newBackwardChunkProvider(cursor kv.Cursor, addr common.Address, minBlock uint64) ChunkProvider {
+	first := true
+	var err error
+	eof := false
+	return func() ([]byte, bool, error) {
+		if err != nil {
+			return nil, false, err
+		}
+		if eof {
+			return nil, false, nil
+		}
+
+		var k, v []byte
+		if first {
+			first = false
+			k, v, err = cursor.Current()
+		} else {
+			k, v, err = cursor.Prev()
+		}
+
+		if err != nil {
+			eof = true
+			return nil, false, err
+		}
+		if !bytes.HasPrefix(k, addr.Bytes()) {
+			eof = true
+			return nil, false, nil
+		}
+		return v, true, nil
 	}
 }
 

@@ -3,7 +3,6 @@ package commands
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/big"
@@ -127,16 +126,17 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 	}
 	defer dbtx.Rollback()
 
-	fromCursor, err := dbtx.Cursor(kv.CallFromIndex)
+	callFromCursor, err := dbtx.Cursor(kv.CallFromIndex)
 	if err != nil {
 		return nil, err
 	}
-	defer fromCursor.Close()
-	toCursor, err := dbtx.Cursor(kv.CallToIndex)
+	defer callFromCursor.Close()
+
+	callToCursor, err := dbtx.Cursor(kv.CallToIndex)
 	if err != nil {
 		return nil, err
 	}
-	defer toCursor.Close()
+	defer callToCursor.Close()
 
 	chainConfig, err := api.chainConfig(dbtx)
 	if err != nil {
@@ -145,8 +145,8 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 
 	// Initialize search cursors at the first shard >= desired block number
 	resultCount := uint16(0)
-	fromIter := newSearchBackIterator(fromCursor, addr, blockNum)
-	toIter := newSearchBackIterator(toCursor, addr, blockNum)
+	fromIter := newSearchBackIterator(callFromCursor, addr, blockNum)
+	toIter := newSearchBackIterator(callToCursor, addr, blockNum)
 
 	txs := make([]*RPCTransaction, 0)
 	receipts := make([]map[string]interface{}, 0)
@@ -155,9 +155,9 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 	if err != nil {
 		return nil, err
 	}
-	eof := false
+	hasMore := true
 	for {
-		if resultCount >= minPageSize || eof {
+		if resultCount >= minPageSize || !hasMore {
 			break
 		}
 
@@ -166,11 +166,11 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 		tot := 0
 		for i := 0; i < int(minPageSize-resultCount); i++ {
 			var blockNum uint64
-			blockNum, eof, err = multiIter()
+			blockNum, hasMore, err = multiIter()
 			if err != nil {
 				return nil, err
 			}
-			if eof {
+			if !hasMore {
 				break
 			}
 
@@ -200,66 +200,12 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 		}
 	}
 
-	return &TransactionsWithReceipts{txs, receipts, blockNum == 0, eof}, nil
+	return &TransactionsWithReceipts{txs, receipts, blockNum == 0, hasMore}, nil
 }
 
 func newSearchBackIterator(cursor kv.Cursor, addr common.Address, maxBlock uint64) BlockProvider {
-	search := make([]byte, common.AddressLength+8)
-	copy(search[:common.AddressLength], addr.Bytes())
-	if maxBlock == 0 {
-		binary.BigEndian.PutUint64(search[common.AddressLength:], ^uint64(0))
-	} else {
-		binary.BigEndian.PutUint64(search[common.AddressLength:], maxBlock)
-	}
-
-	first := true
-	var iter roaring64.IntIterable64
-
-	return func() (uint64, bool, error) {
-		if first {
-			first = false
-			k, v, err := cursor.Seek(search)
-			if err != nil {
-				return 0, true, err
-			}
-			if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
-				return 0, true, nil
-			}
-
-			bitmap := roaring64.New()
-			if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
-				return 0, true, err
-			}
-			bitmap.RemoveRange(maxBlock+1, ^uint64(0))
-			iter = bitmap.ReverseIterator()
-		}
-
-		var blockNum uint64
-		for {
-			if !iter.HasNext() {
-				// Try and check previous shard
-				k, v, err := cursor.Prev()
-				if err != nil {
-					return 0, true, err
-				}
-				if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
-					return 0, true, nil
-				}
-
-				bitmap := roaring64.New()
-				if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
-					return 0, true, err
-				}
-				iter = bitmap.ReverseIterator()
-			}
-			blockNum = iter.Next()
-
-			if maxBlock == 0 || blockNum < maxBlock {
-				break
-			}
-		}
-		return blockNum, false, nil
-	}
+	chunkLocator := NewBackwardChunkLocator(cursor, addr, maxBlock)
+	return NewBackwardBlockProvider(chunkLocator, maxBlock)
 }
 
 // Search transactions that touch a certain address.
@@ -367,7 +313,7 @@ func newMultiIterator(smaller bool, fromIter, toIter BlockProvider) (BlockProvid
 
 	return func() (uint64, bool, error) {
 		if !hasMoreFrom && !hasMoreTo {
-			return 0, true, nil
+			return 0, false, nil
 		}
 
 		var blockNum uint64
@@ -392,13 +338,13 @@ func newMultiIterator(smaller bool, fromIter, toIter BlockProvider) (BlockProvid
 		if hasMoreFrom && blockNum == nextFrom {
 			nextFrom, hasMoreFrom, err = fromIter()
 			if err != nil {
-				return 0, true, err
+				return 0, false, err
 			}
 		}
 		if hasMoreTo && blockNum == nextTo {
 			nextTo, hasMoreTo, err = toIter()
 			if err != nil {
-				return 0, true, err
+				return 0, false, err
 			}
 		}
 		return blockNum, hasMoreFrom || hasMoreTo, nil
