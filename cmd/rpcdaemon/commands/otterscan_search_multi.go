@@ -1,17 +1,23 @@
 package commands
 
-func newMultiIterator(smaller bool, fromIter, toIter BlockProvider) (BlockProvider, error) {
-	// TODO: move this inside the closure; remove error from sig
-	nextFrom, hasMoreFrom, err := fromIter()
-	if err != nil {
-		return nil, err
-	}
-	nextTo, hasMoreTo, err := toIter()
-	if err != nil {
-		return nil, err
-	}
+func newMultiIterator(smaller bool, fromIter, toIter BlockProvider) BlockProvider {
+	var nextFrom, nextTo uint64
+	var hasMoreFrom, hasMoreTo bool
+	initialized := false
 
 	return func() (uint64, bool, error) {
+		if !initialized {
+			initialized = true
+
+			var err error
+			if nextFrom, hasMoreFrom, err = fromIter(); err != nil {
+				return 0, false, err
+			}
+			if nextTo, hasMoreTo, err = toIter(); err != nil {
+				return 0, false, err
+			}
+		}
+
 		if !hasMoreFrom && !hasMoreTo {
 			return 0, false, nil
 		}
@@ -36,17 +42,17 @@ func newMultiIterator(smaller bool, fromIter, toIter BlockProvider) (BlockProvid
 
 		// Pull next; it may be that from AND to contains the same blockNum
 		if hasMoreFrom && blockNum == nextFrom {
-			nextFrom, hasMoreFrom, err = fromIter()
-			if err != nil {
+			var err error
+			if nextFrom, hasMoreFrom, err = fromIter(); err != nil {
 				return 0, false, err
 			}
 		}
 		if hasMoreTo && blockNum == nextTo {
-			nextTo, hasMoreTo, err = toIter()
-			if err != nil {
+			var err error
+			if nextTo, hasMoreTo, err = toIter(); err != nil {
 				return 0, false, err
 			}
 		}
 		return blockNum, hasMoreFrom || hasMoreTo, nil
-	}, nil
+	}
 }

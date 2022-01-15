@@ -143,10 +143,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 	// Initialize search cursors at the first shard >= desired block number
 	fromIter := NewSearchBackIterator(callFromCursor, addr, blockNum)
 	toIter := NewSearchBackIterator(callToCursor, addr, blockNum)
-	multiIter, err := newMultiIterator(false, fromIter, toIter)
-	if err != nil {
-		return nil, err
-	}
+	multiIter := newMultiIterator(false, fromIter, toIter)
 
 	txs := make([]*RPCTransaction, 0, minPageSize)
 	receipts := make([]map[string]interface{}, 0, minPageSize)
@@ -214,17 +211,14 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	}
 
 	// Initialize search cursors at the first shard >= desired block number
-	resultCount := uint16(0)
 	fromIter := NewSearchForwardIterator(callFromCursor, addr, blockNum)
 	toIter := NewSearchForwardIterator(callToCursor, addr, blockNum)
+	multiIter := newMultiIterator(true, fromIter, toIter)
 
 	txs := make([]*RPCTransaction, 0, minPageSize)
 	receipts := make([]map[string]interface{}, 0, minPageSize)
 
-	multiIter, err := newMultiIterator(true, fromIter, toIter)
-	if err != nil {
-		return nil, err
-	}
+	resultCount := uint16(0)
 	hasMore := true
 	for {
 		if resultCount >= minPageSize || !hasMore {
