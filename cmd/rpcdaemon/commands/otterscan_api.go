@@ -141,9 +141,9 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 	}
 
 	// Initialize search cursors at the first shard >= desired block number
-	fromIter := NewSearchBackIterator(callFromCursor, addr, blockNum)
-	toIter := NewSearchBackIterator(callToCursor, addr, blockNum)
-	multiIter := newMultiIterator(false, fromIter, toIter)
+	callFromProvider := NewCallCursorBackwardBlockProvider(callFromCursor, addr, blockNum)
+	callToProvider := NewCallCursorBackwardBlockProvider(callToCursor, addr, blockNum)
+	callFromToProvider := newCallFromToBlockProvider(false, callFromProvider, callToProvider)
 
 	txs := make([]*RPCTransaction, 0, minPageSize)
 	receipts := make([]map[string]interface{}, 0, minPageSize)
@@ -156,7 +156,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 		}
 
 		var results []*TransactionsWithReceipts
-		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, minPageSize, resultCount, multiIter)
+		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, minPageSize, resultCount, callFromToProvider)
 		if err != nil {
 			return nil, err
 		}
@@ -211,9 +211,9 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	}
 
 	// Initialize search cursors at the first shard >= desired block number
-	fromIter := NewSearchForwardIterator(callFromCursor, addr, blockNum)
-	toIter := NewSearchForwardIterator(callToCursor, addr, blockNum)
-	multiIter := newMultiIterator(true, fromIter, toIter)
+	callFromProvider := NewCallCursorForwardBlockProvider(callFromCursor, addr, blockNum)
+	callToProvider := NewCallCursorForwardBlockProvider(callToCursor, addr, blockNum)
+	callFromToProvider := newCallFromToBlockProvider(true, callFromProvider, callToProvider)
 
 	txs := make([]*RPCTransaction, 0, minPageSize)
 	receipts := make([]map[string]interface{}, 0, minPageSize)
@@ -226,7 +226,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 		}
 
 		var results []*TransactionsWithReceipts
-		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, minPageSize, resultCount, multiIter)
+		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, minPageSize, resultCount, callFromToProvider)
 		if err != nil {
 			return nil, err
 		}

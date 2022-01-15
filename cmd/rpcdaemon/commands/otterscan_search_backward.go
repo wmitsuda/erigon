@@ -154,7 +154,7 @@ func NewBackwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProv
 	}
 }
 
-func NewSearchBackIterator(cursor kv.Cursor, addr common.Address, maxBlock uint64) BlockProvider {
+func NewCallCursorBackwardBlockProvider(cursor kv.Cursor, addr common.Address, maxBlock uint64) BlockProvider {
 	chunkLocator := newBackwardChunkLocator(cursor, addr)
 	return NewBackwardBlockProvider(chunkLocator, maxBlock)
 }

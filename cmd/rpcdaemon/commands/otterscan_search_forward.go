@@ -144,7 +144,7 @@ func NewForwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProvi
 	}
 }
 
-func NewSearchForwardIterator(cursor kv.Cursor, addr common.Address, minBlock uint64) BlockProvider {
+func NewCallCursorForwardBlockProvider(cursor kv.Cursor, addr common.Address, minBlock uint64) BlockProvider {
 	chunkLocator := newForwardChunkLocator(cursor, addr)
 	return NewForwardBlockProvider(chunkLocator, minBlock)
 }

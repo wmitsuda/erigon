@@ -1,6 +1,6 @@
 package commands
 
-func newMultiIterator(smaller bool, fromIter, toIter BlockProvider) BlockProvider {
+func newCallFromToBlockProvider(isBackwards bool, callFromProvider, callToProvider BlockProvider) BlockProvider {
 	var nextFrom, nextTo uint64
 	var hasMoreFrom, hasMoreTo bool
 	initialized := false
@@ -10,10 +10,10 @@ func newMultiIterator(smaller bool, fromIter, toIter BlockProvider) BlockProvide
 			initialized = true
 
 			var err error
-			if nextFrom, hasMoreFrom, err = fromIter(); err != nil {
+			if nextFrom, hasMoreFrom, err = callFromProvider(); err != nil {
 				return 0, false, err
 			}
-			if nextTo, hasMoreTo, err = toIter(); err != nil {
+			if nextTo, hasMoreTo, err = callToProvider(); err != nil {
 				return 0, false, err
 			}
 		}
@@ -29,7 +29,7 @@ func newMultiIterator(smaller bool, fromIter, toIter BlockProvider) BlockProvide
 			blockNum = nextFrom
 		} else {
 			blockNum = nextFrom
-			if smaller {
+			if isBackwards {
 				if nextTo < nextFrom {
 					blockNum = nextTo
 				}
@@ -43,13 +43,13 @@ func newMultiIterator(smaller bool, fromIter, toIter BlockProvider) BlockProvide
 		// Pull next; it may be that from AND to contains the same blockNum
 		if hasMoreFrom && blockNum == nextFrom {
 			var err error
-			if nextFrom, hasMoreFrom, err = fromIter(); err != nil {
+			if nextFrom, hasMoreFrom, err = callFromProvider(); err != nil {
 				return 0, false, err
 			}
 		}
 		if hasMoreTo && blockNum == nextTo {
 			var err error
-			if nextTo, hasMoreTo, err = toIter(); err != nil {
+			if nextTo, hasMoreTo, err = callToProvider(); err != nil {
 				return 0, false, err
 			}
 		}
