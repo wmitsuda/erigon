@@ -158,28 +158,13 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 			break
 		}
 
-		var wg sync.WaitGroup
-		tot := 0
-		blocks2Trace := minPageSize - resultCount
-		results := make([]*TransactionsWithReceipts, blocks2Trace)
-		for i := 0; i < int(blocks2Trace); i++ {
-			var nextBlock uint64
-			nextBlock, hasMore, err = multiIter()
-			if err != nil {
-				return nil, err
-			}
-			if !hasMore {
-				break
-			}
-
-			wg.Add(1)
-			tot++
-			go api.searchTraceBlock(ctx, &wg, addr, chainConfig, i, nextBlock, results)
+		var results []*TransactionsWithReceipts
+		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, minPageSize, resultCount, hasMore, multiIter)
+		if err != nil {
+			return nil, err
 		}
-		wg.Wait()
 
-		for i := 0; i < tot; i++ {
-			r := results[i]
+		for _, r := range results {
 			if r == nil {
 				return nil, errors.New("XXXX")
 			}
@@ -246,27 +231,13 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 			break
 		}
 
-		var wg sync.WaitGroup
-		results := make([]*TransactionsWithReceipts, 100)
-		tot := 0
-		for i := 0; i < int(minPageSize-resultCount); i++ {
-			var nextBlock uint64
-			nextBlock, hasMore, err = multiIter()
-			if err != nil {
-				return nil, err
-			}
-			if !hasMore {
-				break
-			}
-
-			wg.Add(1)
-			tot++
-			go api.searchTraceBlock(ctx, &wg, addr, chainConfig, i, nextBlock, results)
+		var results []*TransactionsWithReceipts
+		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, minPageSize, resultCount, hasMore, multiIter)
+		if err != nil {
+			return nil, err
 		}
-		wg.Wait()
 
-		for i := 0; i < tot; i++ {
-			r := results[i]
+		for _, r := range results {
 			if r == nil {
 				return nil, errors.New("XXXX")
 			}
@@ -286,6 +257,32 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	}
 
 	return &TransactionsWithReceipts{txs, receipts, !hasMore, blockNum == 0}, nil
+}
+
+func (api *OtterscanAPIImpl) traceBlocks(ctx context.Context, addr common.Address, chainConfig *params.ChainConfig, minPageSize, resultCount uint16, hasMore bool, multiIter BlockProvider) ([]*TransactionsWithReceipts, bool, error) {
+	var wg sync.WaitGroup
+
+	tot := 0
+	blocks2Trace := minPageSize - resultCount
+	results := make([]*TransactionsWithReceipts, blocks2Trace)
+	for i := 0; i < int(blocks2Trace); i++ {
+		var nextBlock uint64
+		var err error
+		nextBlock, hasMore, err = multiIter()
+		if err != nil {
+			return nil, false, err
+		}
+		if !hasMore {
+			break
+		}
+
+		wg.Add(1)
+		tot++
+		go api.searchTraceBlock(ctx, &wg, addr, chainConfig, i, nextBlock, results)
+	}
+	wg.Wait()
+
+	return results[:tot], hasMore, nil
 }
 
 func (api *OtterscanAPIImpl) delegateGetBlockByNumber(tx kv.Tx, b *types.Block, number rpc.BlockNumber, inclTx bool) (map[string]interface{}, error) {
