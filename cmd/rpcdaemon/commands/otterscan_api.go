@@ -163,7 +163,8 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 		blocks2Trace := minPageSize - resultCount
 		results := make([]*TransactionsWithReceipts, blocks2Trace)
 		for i := 0; i < int(blocks2Trace); i++ {
-			nextBlock, hasMore, err := multiIter()
+			var nextBlock uint64
+			nextBlock, hasMore, err = multiIter()
 			if err != nil {
 				return nil, err
 			}
@@ -249,8 +250,8 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 		results := make([]*TransactionsWithReceipts, 100)
 		tot := 0
 		for i := 0; i < int(minPageSize-resultCount); i++ {
-			var blockNum uint64
-			blockNum, hasMore, err = multiIter()
+			var nextBlock uint64
+			nextBlock, hasMore, err = multiIter()
 			if err != nil {
 				return nil, err
 			}
@@ -260,7 +261,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 
 			wg.Add(1)
 			tot++
-			go api.searchTraceBlock(ctx, &wg, addr, chainConfig, i, blockNum, results)
+			go api.searchTraceBlock(ctx, &wg, addr, chainConfig, i, nextBlock, results)
 		}
 		wg.Wait()
 
