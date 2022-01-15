@@ -148,8 +148,8 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 		return nil, err
 	}
 
-	txs := make([]*RPCTransaction, 0)
-	receipts := make([]map[string]interface{}, 0)
+	txs := make([]*RPCTransaction, 0, minPageSize)
+	receipts := make([]map[string]interface{}, 0, minPageSize)
 
 	resultCount := uint16(0)
 	hasMore := true
@@ -169,7 +169,6 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 				return nil, errors.New("XXXX")
 			}
 
-			resultCount += uint16(len(r.Txs))
 			for i := len(r.Txs) - 1; i >= 0; i-- {
 				txs = append(txs, r.Txs[i])
 			}
@@ -177,6 +176,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 				receipts = append(receipts, r.Receipts[i])
 			}
 
+			resultCount += uint16(len(r.Txs))
 			if resultCount >= minPageSize {
 				break
 			}
@@ -218,8 +218,8 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	fromIter := NewSearchForwardIterator(callFromCursor, addr, blockNum)
 	toIter := NewSearchForwardIterator(callToCursor, addr, blockNum)
 
-	txs := make([]*RPCTransaction, 0)
-	receipts := make([]map[string]interface{}, 0)
+	txs := make([]*RPCTransaction, 0, minPageSize)
+	receipts := make([]map[string]interface{}, 0, minPageSize)
 
 	multiIter, err := newMultiIterator(true, fromIter, toIter)
 	if err != nil {
@@ -242,20 +242,22 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 				return nil, errors.New("XXXX")
 			}
 
-			resultCount += uint16(len(r.Txs))
-			for _, v := range r.Txs {
-				txs = append([]*RPCTransaction{v}, txs...)
-			}
-			for _, v := range r.Receipts {
-				receipts = append([]map[string]interface{}{v}, receipts...)
-			}
+			txs = append(txs, r.Txs...)
+			receipts = append(receipts, r.Receipts...)
 
+			resultCount += uint16(len(r.Txs))
 			if resultCount >= minPageSize {
 				break
 			}
 		}
 	}
 
+	// Reverse results
+	lentxs := len(txs)
+	for i := 0; i < lentxs/2; i++ {
+		txs[i], txs[lentxs-1-i] = txs[lentxs-1-i], txs[i]
+		receipts[i], receipts[lentxs-1-i] = receipts[lentxs-1-i], receipts[i]
+	}
 	return &TransactionsWithReceipts{txs, receipts, !hasMore, blockNum == 0}, nil
 }
 
