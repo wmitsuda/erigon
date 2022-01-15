@@ -159,7 +159,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 		}
 
 		var results []*TransactionsWithReceipts
-		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, minPageSize, resultCount, hasMore, multiIter)
+		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, minPageSize, resultCount, multiIter)
 		if err != nil {
 			return nil, err
 		}
@@ -232,7 +232,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 		}
 
 		var results []*TransactionsWithReceipts
-		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, minPageSize, resultCount, hasMore, multiIter)
+		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, minPageSize, resultCount, multiIter)
 		if err != nil {
 			return nil, err
 		}
@@ -250,7 +250,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 				receipts = append([]map[string]interface{}{v}, receipts...)
 			}
 
-			if resultCount > minPageSize {
+			if resultCount >= minPageSize {
 				break
 			}
 		}
@@ -259,13 +259,15 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	return &TransactionsWithReceipts{txs, receipts, !hasMore, blockNum == 0}, nil
 }
 
-func (api *OtterscanAPIImpl) traceBlocks(ctx context.Context, addr common.Address, chainConfig *params.ChainConfig, minPageSize, resultCount uint16, hasMore bool, multiIter BlockProvider) ([]*TransactionsWithReceipts, bool, error) {
+func (api *OtterscanAPIImpl) traceBlocks(ctx context.Context, addr common.Address, chainConfig *params.ChainConfig, minPageSize, resultCount uint16, multiIter BlockProvider) ([]*TransactionsWithReceipts, bool, error) {
 	var wg sync.WaitGroup
 
-	tot := 0
-	blocks2Trace := minPageSize - resultCount
-	results := make([]*TransactionsWithReceipts, blocks2Trace)
-	for i := 0; i < int(blocks2Trace); i++ {
+	maxBlocksToTrace := minPageSize - resultCount
+	results := make([]*TransactionsWithReceipts, maxBlocksToTrace)
+	totalBlocksTraced := 0
+	hasMore := true
+
+	for i := 0; i < int(maxBlocksToTrace); i++ {
 		var nextBlock uint64
 		var err error
 		nextBlock, hasMore, err = multiIter()
@@ -277,12 +279,12 @@ func (api *OtterscanAPIImpl) traceBlocks(ctx context.Context, addr common.Addres
 		}
 
 		wg.Add(1)
-		tot++
+		totalBlocksTraced++
 		go api.searchTraceBlock(ctx, &wg, addr, chainConfig, i, nextBlock, results)
 	}
 	wg.Wait()
 
-	return results[:tot], hasMore, nil
+	return results[:totalBlocksTraced], hasMore, nil
 }
 
 func (api *OtterscanAPIImpl) delegateGetBlockByNumber(tx kv.Tx, b *types.Block, number rpc.BlockNumber, inclTx bool) (map[string]interface{}, error) {
