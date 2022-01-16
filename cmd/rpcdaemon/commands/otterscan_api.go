@@ -44,8 +44,8 @@ type TransactionsWithReceipts struct {
 type OtterscanAPI interface {
 	GetApiLevel() uint8
 	GetInternalOperations(ctx context.Context, hash common.Hash) ([]*otterscan.InternalOperation, error)
-	SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
-	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
+	SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error)
+	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error)
 	GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error)
 	GetBlockTransactions(ctx context.Context, number rpc.BlockNumber, pageNumber uint8, pageSize uint8) (map[string]interface{}, error)
 	HasCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (bool, error)
@@ -116,7 +116,12 @@ func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash com
 // Search transactions that touch a certain address.
 //
 // It searches back a certain block (including); the results are sorted descending.
-func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error) {
+//
+// The pageSize indicates how many txs may be returned. If there are less txs than pageSize,
+// they are just returned. But it may return a little more than pageSize if there are more txs
+// than the necessary to fill pageSize in the last found block, i.e., let's say you want pageSize == 25,
+// you already found 24 txs, the next block contains 4 matches, then this function will return 28 txs.
+func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error) {
 	dbtx, err := api.db.BeginRo(ctx)
 	if err != nil {
 		return nil, err
@@ -145,18 +150,18 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 	callToProvider := NewCallCursorBackwardBlockProvider(callToCursor, addr, blockNum)
 	callFromToProvider := newCallFromToBlockProvider(false, callFromProvider, callToProvider)
 
-	txs := make([]*RPCTransaction, 0, minPageSize)
-	receipts := make([]map[string]interface{}, 0, minPageSize)
+	txs := make([]*RPCTransaction, 0, pageSize)
+	receipts := make([]map[string]interface{}, 0, pageSize)
 
 	resultCount := uint16(0)
 	hasMore := true
 	for {
-		if resultCount >= minPageSize || !hasMore {
+		if resultCount >= pageSize || !hasMore {
 			break
 		}
 
 		var results []*TransactionsWithReceipts
-		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, minPageSize, resultCount, callFromToProvider)
+		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, pageSize, resultCount, callFromToProvider)
 		if err != nil {
 			return nil, err
 		}
@@ -174,7 +179,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 			}
 
 			resultCount += uint16(len(r.Txs))
-			if resultCount >= minPageSize {
+			if resultCount >= pageSize {
 				break
 			}
 		}
@@ -186,7 +191,12 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 // Search transactions that touch a certain address.
 //
 // It searches forward a certain block (including); the results are sorted descending.
-func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error) {
+//
+// The pageSize indicates how many txs may be returned. If there are less txs than pageSize,
+// they are just returned. But it may return a little more than pageSize if there are more txs
+// than the necessary to fill pageSize in the last found block, i.e., let's say you want pageSize == 25,
+// you already found 24 txs, the next block contains 4 matches, then this function will return 28 txs.
+func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error) {
 	dbtx, err := api.db.BeginRo(ctx)
 	if err != nil {
 		return nil, err
@@ -215,18 +225,18 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	callToProvider := NewCallCursorForwardBlockProvider(callToCursor, addr, blockNum)
 	callFromToProvider := newCallFromToBlockProvider(true, callFromProvider, callToProvider)
 
-	txs := make([]*RPCTransaction, 0, minPageSize)
-	receipts := make([]map[string]interface{}, 0, minPageSize)
+	txs := make([]*RPCTransaction, 0, pageSize)
+	receipts := make([]map[string]interface{}, 0, pageSize)
 
 	resultCount := uint16(0)
 	hasMore := true
 	for {
-		if resultCount >= minPageSize || !hasMore {
+		if resultCount >= pageSize || !hasMore {
 			break
 		}
 
 		var results []*TransactionsWithReceipts
-		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, minPageSize, resultCount, callFromToProvider)
+		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, pageSize, resultCount, callFromToProvider)
 		if err != nil {
 			return nil, err
 		}
@@ -240,7 +250,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 			receipts = append(receipts, r.Receipts...)
 
 			resultCount += uint16(len(r.Txs))
-			if resultCount >= minPageSize {
+			if resultCount >= pageSize {
 				break
 			}
 		}
@@ -255,15 +265,18 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	return &TransactionsWithReceipts{txs, receipts, !hasMore, blockNum == 0}, nil
 }
 
-func (api *OtterscanAPIImpl) traceBlocks(ctx context.Context, addr common.Address, chainConfig *params.ChainConfig, minPageSize, resultCount uint16, multiIter BlockProvider) ([]*TransactionsWithReceipts, bool, error) {
+func (api *OtterscanAPIImpl) traceBlocks(ctx context.Context, addr common.Address, chainConfig *params.ChainConfig, pageSize, resultCount uint16, multiIter BlockProvider) ([]*TransactionsWithReceipts, bool, error) {
 	var wg sync.WaitGroup
 
-	maxBlocksToTrace := minPageSize - resultCount
-	results := make([]*TransactionsWithReceipts, maxBlocksToTrace)
+	// Estimate the common case of user address having at most 1 interaction/block and
+	// trace N := remaining page matches as number of blocks to trace concurrently.
+	// TODO: this is not optimimal for big contract addresses; implement some better heuristics.
+	estBlocksToTrace := pageSize - resultCount
+	results := make([]*TransactionsWithReceipts, estBlocksToTrace)
 	totalBlocksTraced := 0
 	hasMore := true
 
-	for i := 0; i < int(maxBlocksToTrace); i++ {
+	for i := 0; i < int(estBlocksToTrace); i++ {
 		var nextBlock uint64
 		var err error
 		nextBlock, hasMore, err = multiIter()
