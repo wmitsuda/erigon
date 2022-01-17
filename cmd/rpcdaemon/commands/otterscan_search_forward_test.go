@@ -55,11 +55,11 @@ func checkNext(t *testing.T, blockProvider BlockProvider, expectedBlock uint64, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	if expectedHasNext != hasNext {
-		t.Fatalf("Expected hasNext=%t, received=%t", expectedHasNext, hasNext)
-	}
 	if bl != expectedBlock {
 		t.Fatalf("Expected block %d, received %d", expectedBlock, bl)
+	}
+	if expectedHasNext != hasNext {
+		t.Fatalf("Expected hasNext=%t, received=%t; at block=%d", expectedHasNext, hasNext, expectedBlock)
 	}
 }
 
