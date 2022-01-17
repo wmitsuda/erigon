@@ -23,6 +23,7 @@ type ChunkProvider func() (chunk []byte, ok bool, err error)
 
 type BlockProvider func() (nextBlock uint64, hasMore bool, err error)
 
+// Standard key format for call from/to indexes [address + block]
 func callIndexKey(addr common.Address, block uint64) []byte {
 	key := make([]byte, common.AddressLength+8)
 	copy(key[:common.AddressLength], addr.Bytes())
