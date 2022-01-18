@@ -283,7 +283,8 @@ func (api *OtterscanAPIImpl) traceBlocks(ctx context.Context, addr common.Addres
 		if err != nil {
 			return nil, false, err
 		}
-		if !hasMore {
+		// TODO: nextBlock == 0 seems redundant with hasMore == false
+		if !hasMore && nextBlock == 0 {
 			break
 		}
 

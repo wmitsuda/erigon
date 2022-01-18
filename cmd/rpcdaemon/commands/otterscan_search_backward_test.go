@@ -9,19 +9,24 @@ import (
 
 func newMockBackwardChunkLocator(chunks [][]byte) ChunkLocator {
 	return func(block uint64) (ChunkProvider, bool, error) {
-		for i := len(chunks) - 1; i >= 0; i-- {
+		for i, v := range chunks {
 			bm := roaring64.NewBitmap()
-			if _, err := bm.ReadFrom(bytes.NewReader(chunks[i])); err != nil {
+			if _, err := bm.ReadFrom(bytes.NewReader(v)); err != nil {
 				return nil, false, err
 			}
-			if block < bm.Minimum() {
+			if block > bm.Maximum() {
 				continue
 			}
 
 			return newMockBackwardChunkProvider(chunks[:i+1]), true, nil
 		}
 
-		// Not found
+		// Not found; return the last to simulate the behavior of returning
+		// everything up to the 0xffff... chunk
+		if len(chunks) > 0 {
+			return newMockBackwardChunkProvider(chunks), true, nil
+		}
+
 		return nil, true, nil
 	}
 }
@@ -124,4 +129,15 @@ func TestBackwardBlockProviderWithMultipleChunksBlockBetweenChunks(t *testing.T)
 	checkNext(t, blockProvider, 1010, true)
 	checkNext(t, blockProvider, 1005, true)
 	checkNext(t, blockProvider, 1000, false)
+}
+
+func TestBackwardBlockProviderWithMultipleChunksBlockNotFound(t *testing.T) {
+	// Mocks 2 chunks
+	chunk1 := createBitmap(t, []uint64{1000, 1005, 1010})
+	chunk2 := createBitmap(t, []uint64{1501, 1600})
+
+	chunkLocator := newMockBackwardChunkLocator([][]byte{chunk1, chunk2})
+	blockProvider := NewBackwardBlockProvider(chunkLocator, 900)
+
+	checkNext(t, blockProvider, 0, false)
 }

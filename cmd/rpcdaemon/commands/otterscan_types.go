@@ -1,8 +1,10 @@
 package commands
 
 import (
+	"bytes"
 	"encoding/binary"
 
+	"github.com/ledgerwatch/erigon-lib/kv"
 	"github.com/ledgerwatch/erigon/common"
 )
 
@@ -32,3 +34,57 @@ func callIndexKey(addr common.Address, block uint64) []byte {
 }
 
 const MaxBlockNum = ^uint64(0)
+
+// This ChunkLocator searches over a cursor with a key format of [common.Address, block uint64],
+// where block is the first block number contained in the chunk value.
+//
+// It positions the cursor on the chunk that contains the first block >= minBlock.
+func newCallChunkLocator(cursor kv.Cursor, addr common.Address, navigateForward bool) ChunkLocator {
+	return func(minBlock uint64) (ChunkProvider, bool, error) {
+		searchKey := callIndexKey(addr, minBlock)
+		_, _, err := cursor.Seek(searchKey)
+		if err != nil {
+			return nil, false, err
+		}
+
+		return newCallChunkProvider(cursor, addr, navigateForward), true, nil
+	}
+}
+
+// This ChunkProvider is built by NewForwardChunkLocator and advances the cursor forward until
+// there is no more chunks for the desired addr.
+func newCallChunkProvider(cursor kv.Cursor, addr common.Address, navigateForward bool) ChunkProvider {
+	first := true
+	var err error
+	eof := false
+	return func() ([]byte, bool, error) {
+		if err != nil {
+			return nil, false, err
+		}
+		if eof {
+			return nil, false, nil
+		}
+
+		var k, v []byte
+		if first {
+			first = false
+			k, v, err = cursor.Current()
+		} else {
+			if navigateForward {
+				k, v, err = cursor.Next()
+			} else {
+				k, v, err = cursor.Prev()
+			}
+		}
+
+		if err != nil {
+			eof = true
+			return nil, false, err
+		}
+		if !bytes.HasPrefix(k, addr.Bytes()) {
+			eof = true
+			return nil, false, nil
+		}
+		return v, true, nil
+	}
+}

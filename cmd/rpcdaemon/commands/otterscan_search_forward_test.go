@@ -21,7 +21,12 @@ func newMockForwardChunkLocator(chunks [][]byte) ChunkLocator {
 			return newMockForwardChunkProvider(chunks[i:]), true, nil
 		}
 
-		// Not found
+		// Not found; return the last to simulate the behavior of returning
+		// the 0xffff... chunk
+		if len(chunks) > 0 {
+			return newMockForwardChunkProvider(chunks[len(chunks)-1:]), true, nil
+		}
+
 		return nil, true, nil
 	}
 }
@@ -124,4 +129,15 @@ func TestForwardBlockProviderWithMultipleChunksBlockBetweenChunks(t *testing.T) 
 
 	checkNext(t, blockProvider, 1501, true)
 	checkNext(t, blockProvider, 1600, false)
+}
+
+func TestForwardBlockProviderWithMultipleChunksBlockNotFound(t *testing.T) {
+	// Mocks 2 chunks
+	chunk1 := createBitmap(t, []uint64{1000, 1005, 1010})
+	chunk2 := createBitmap(t, []uint64{1501, 1600})
+
+	chunkLocator := newMockForwardChunkLocator([][]byte{chunk1, chunk2})
+	blockProvider := NewForwardBlockProvider(chunkLocator, 1700)
+
+	checkNext(t, blockProvider, 0, false)
 }

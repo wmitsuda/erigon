@@ -13,9 +13,12 @@ func newCallFromToBlockProvider(isBackwards bool, callFromProvider, callToProvid
 			if nextFrom, hasMoreFrom, err = callFromProvider(); err != nil {
 				return 0, false, err
 			}
+			hasMoreFrom = hasMoreFrom || nextFrom != 0
+
 			if nextTo, hasMoreTo, err = callToProvider(); err != nil {
 				return 0, false, err
 			}
+			hasMoreTo = hasMoreTo || nextTo != 0
 		}
 
 		if !hasMoreFrom && !hasMoreTo {
@@ -46,12 +49,14 @@ func newCallFromToBlockProvider(isBackwards bool, callFromProvider, callToProvid
 			if nextFrom, hasMoreFrom, err = callFromProvider(); err != nil {
 				return 0, false, err
 			}
+			hasMoreFrom = hasMoreFrom || nextFrom != 0
 		}
 		if hasMoreTo && blockNum == nextTo {
 			var err error
 			if nextTo, hasMoreTo, err = callToProvider(); err != nil {
 				return 0, false, err
 			}
+			hasMoreTo = hasMoreTo || nextTo != 0
 		}
 		return blockNum, hasMoreFrom || hasMoreTo, nil
 	}

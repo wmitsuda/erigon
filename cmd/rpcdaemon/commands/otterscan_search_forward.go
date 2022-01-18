@@ -8,109 +8,53 @@ import (
 	"github.com/ledgerwatch/erigon/common"
 )
 
-// This ChunkLocator searches over a cursor with a key format of [common.Address, block uint64],
-// where block is the first block number contained in the chunk value.
-//
-// It positions the cursor on the chunk that contains the first block >= minBlock.
-func newForwardChunkLocator(cursor kv.Cursor, addr common.Address) ChunkLocator {
-	return func(block uint64) (ChunkProvider, bool, error) {
-		searchKey := callIndexKey(addr, block)
-		k, _, err := cursor.Seek(searchKey)
-		if err != nil {
-			return nil, false, err
-		}
-
-		// Exact match?
-		if bytes.Equal(k, searchKey) {
-			return newForwardChunkProvider(cursor, addr, block), true, nil
-		}
-
-		// It maybe the previous chunk
-		kp, _, err := cursor.Prev()
-		if err != nil {
-			return nil, false, err
-		}
-		if !bytes.HasPrefix(kp, addr.Bytes()) {
-			// It is in the current chunk
-			_, _, err = cursor.Next()
-			if err != nil {
-				return nil, false, err
-			}
-			return newForwardChunkProvider(cursor, addr, block), true, nil
-		}
-
-		// It is in the previous chunk
-		return newForwardChunkProvider(cursor, addr, block), true, nil
-	}
-}
-
-// This ChunkProvider is built by NewForwardChunkLocator and advances the cursor forward until
-// there is no more chunks for the desired addr.
-func newForwardChunkProvider(cursor kv.Cursor, addr common.Address, minBlock uint64) ChunkProvider {
-	first := true
-	var err error
-	eof := false
-	return func() ([]byte, bool, error) {
-		if err != nil {
-			return nil, false, err
-		}
-		if eof {
-			return nil, false, nil
-		}
-
-		var k, v []byte
-		if first {
-			first = false
-			k, v, err = cursor.Current()
-		} else {
-			k, v, err = cursor.Next()
-		}
-
-		if err != nil {
-			eof = true
-			return nil, false, err
-		}
-		if !bytes.HasPrefix(k, addr.Bytes()) {
-			eof = true
-			return nil, false, nil
-		}
-		return v, true, nil
-	}
-}
-
 // Given a ChunkLocator, moves forward over the chunks and inside each chunk, moves
 // forward over the block numbers.
-func NewForwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProvider {
+func NewForwardBlockProvider(chunkLocator ChunkLocator, minBlock uint64) BlockProvider {
 	var iter roaring64.IntPeekable64
 	var chunkProvider ChunkProvider
+	isFirst := true
+	finished := false
 
 	return func() (uint64, bool, error) {
-		if chunkProvider == nil {
+		if finished {
+			return 0, false, nil
+		}
+
+		if isFirst {
+			isFirst = false
+
+			// Try to get first chunk
 			var ok bool
 			var err error
-			chunkProvider, ok, err = chunkLocator(block)
+			chunkProvider, ok, err = chunkLocator(minBlock)
 			if err != nil {
+				finished = true
 				return 0, false, err
 			}
 			if !ok {
+				finished = true
 				return 0, false, nil
 			}
 			if chunkProvider == nil {
+				finished = true
 				return 0, false, nil
 			}
-		}
 
-		if iter == nil {
+			// Has at least the first chunk; initialize the iterator
 			chunk, ok, err := chunkProvider()
 			if err != nil {
+				finished = true
 				return 0, false, err
 			}
 			if !ok {
+				finished = true
 				return 0, false, nil
 			}
 
 			bm := roaring64.NewBitmap()
 			if _, err := bm.ReadFrom(bytes.NewReader(chunk)); err != nil {
+				finished = true
 				return 0, false, err
 			}
 			iter = bm.Iterator()
@@ -118,26 +62,39 @@ func NewForwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProvi
 			// It can happen that on the first chunk we'll get a chunk that contains
 			// the first block >= minBlock in the middle of the chunk/bitmap, so we
 			// skip all previous blocks before it.
-			iter.AdvanceIfNeeded(block)
+			iter.AdvanceIfNeeded(minBlock)
+
+			// This means it is the last chunk and the min block is > the last one
+			if !iter.HasNext() {
+				finished = true
+				return 0, false, nil
+			}
 		}
 
 		nextBlock := iter.Next()
 		hasNext := iter.HasNext()
 		if !hasNext {
+			iter = nil
+
 			// Check if there is another chunk to get blocks from
 			chunk, ok, err := chunkProvider()
 			if err != nil {
+				finished = true
 				return 0, false, err
 			}
-			if ok {
-				hasNext = true
-
-				bm := roaring64.NewBitmap()
-				if _, err := bm.ReadFrom(bytes.NewReader(chunk)); err != nil {
-					return 0, false, err
-				}
-				iter = bm.Iterator()
+			if !ok {
+				finished = true
+				return nextBlock, false, nil
 			}
+
+			hasNext = true
+
+			bm := roaring64.NewBitmap()
+			if _, err := bm.ReadFrom(bytes.NewReader(chunk)); err != nil {
+				finished = true
+				return 0, false, err
+			}
+			iter = bm.Iterator()
 		}
 
 		return nextBlock, hasNext, nil
@@ -145,6 +102,6 @@ func NewForwardBlockProvider(chunkLocator ChunkLocator, block uint64) BlockProvi
 }
 
 func NewCallCursorForwardBlockProvider(cursor kv.Cursor, addr common.Address, minBlock uint64) BlockProvider {
-	chunkLocator := newForwardChunkLocator(cursor, addr)
+	chunkLocator := newCallChunkLocator(cursor, addr, true)
 	return NewForwardBlockProvider(chunkLocator, minBlock)
 }
