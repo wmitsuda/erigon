@@ -265,7 +265,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	return &TransactionsWithReceipts{txs, receipts, !hasMore, blockNum == 0}, nil
 }
 
-func (api *OtterscanAPIImpl) traceBlocks(ctx context.Context, addr common.Address, chainConfig *params.ChainConfig, pageSize, resultCount uint16, multiIter BlockProvider) ([]*TransactionsWithReceipts, bool, error) {
+func (api *OtterscanAPIImpl) traceBlocks(ctx context.Context, addr common.Address, chainConfig *params.ChainConfig, pageSize, resultCount uint16, callFromToProvider BlockProvider) ([]*TransactionsWithReceipts, bool, error) {
 	var wg sync.WaitGroup
 
 	// Estimate the common case of user address having at most 1 interaction/block and
@@ -279,7 +279,7 @@ func (api *OtterscanAPIImpl) traceBlocks(ctx context.Context, addr common.Addres
 	for i := 0; i < int(estBlocksToTrace); i++ {
 		var nextBlock uint64
 		var err error
-		nextBlock, hasMore, err = multiIter()
+		nextBlock, hasMore, err = callFromToProvider()
 		if err != nil {
 			return nil, false, err
 		}
