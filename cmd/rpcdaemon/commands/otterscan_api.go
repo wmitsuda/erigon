@@ -3,7 +3,6 @@ package commands
 import (
 	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"math/big"
@@ -19,7 +18,6 @@ import (
 	"github.com/ledgerwatch/erigon/consensus/ethash"
 	"github.com/ledgerwatch/erigon/core"
 	"github.com/ledgerwatch/erigon/core/rawdb"
-	"github.com/ledgerwatch/erigon/core/state"
 	"github.com/ledgerwatch/erigon/core/types"
 	"github.com/ledgerwatch/erigon/core/types/accounts"
 	"github.com/ledgerwatch/erigon/core/vm"
@@ -30,9 +28,7 @@ import (
 	"github.com/ledgerwatch/erigon/rpc"
 	"github.com/ledgerwatch/erigon/turbo/adapter"
 	"github.com/ledgerwatch/erigon/turbo/rpchelper"
-	"github.com/ledgerwatch/erigon/turbo/shards"
 	"github.com/ledgerwatch/erigon/turbo/transactions"
-	"github.com/ledgerwatch/log/v3"
 )
 
 // API_LEVEL Must be incremented every time new additions are made
@@ -48,8 +44,8 @@ type TransactionsWithReceipts struct {
 type OtterscanAPI interface {
 	GetApiLevel() uint8
 	GetInternalOperations(ctx context.Context, hash common.Hash) ([]*otterscan.InternalOperation, error)
-	SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
-	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error)
+	SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error)
+	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error)
 	GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error)
 	GetBlockTransactions(ctx context.Context, number rpc.BlockNumber, pageNumber uint8, pageSize uint8) (map[string]interface{}, error)
 	HasCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (bool, error)
@@ -117,73 +113,72 @@ func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash com
 	return tracer.Results, nil
 }
 
-func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error) {
+// Search transactions that touch a certain address.
+//
+// It searches back a certain block (excluding); the results are sorted descending.
+//
+// The pageSize indicates how many txs may be returned. If there are less txs than pageSize,
+// they are just returned. But it may return a little more than pageSize if there are more txs
+// than the necessary to fill pageSize in the last found block, i.e., let's say you want pageSize == 25,
+// you already found 24 txs, the next block contains 4 matches, then this function will return 28 txs.
+func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error) {
 	dbtx, err := api.db.BeginRo(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer dbtx.Rollback()
 
-	fromCursor, err := dbtx.Cursor(kv.CallFromIndex)
+	callFromCursor, err := dbtx.Cursor(kv.CallFromIndex)
 	if err != nil {
 		return nil, err
 	}
-	defer fromCursor.Close()
-	toCursor, err := dbtx.Cursor(kv.CallToIndex)
+	defer callFromCursor.Close()
+
+	callToCursor, err := dbtx.Cursor(kv.CallToIndex)
 	if err != nil {
 		return nil, err
 	}
-	defer toCursor.Close()
+	defer callToCursor.Close()
 
 	chainConfig, err := api.chainConfig(dbtx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Initialize search cursors at the first shard >= desired block number
-	resultCount := uint16(0)
-	fromIter := newSearchBackIterator(fromCursor, addr, blockNum)
-	toIter := newSearchBackIterator(toCursor, addr, blockNum)
-
-	txs := make([]*RPCTransaction, 0)
-	receipts := make([]map[string]interface{}, 0)
-
-	multiIter, err := newMultiIterator(false, fromIter, toIter)
-	if err != nil {
-		return nil, err
+	isFirstPage := false
+	if blockNum == 0 {
+		isFirstPage = true
+	} else {
+		// Internal search code considers blockNum [including], so adjust the value
+		blockNum--
 	}
-	eof := false
+
+	// Initialize search cursors at the first shard >= desired block number
+	callFromProvider := NewCallCursorBackwardBlockProvider(callFromCursor, addr, blockNum)
+	callToProvider := NewCallCursorBackwardBlockProvider(callToCursor, addr, blockNum)
+	callFromToProvider := newCallFromToBlockProvider(false, callFromProvider, callToProvider)
+
+	txs := make([]*RPCTransaction, 0, pageSize)
+	receipts := make([]map[string]interface{}, 0, pageSize)
+
+	resultCount := uint16(0)
+	hasMore := true
 	for {
-		if resultCount >= minPageSize || eof {
+		if resultCount >= pageSize || !hasMore {
 			break
 		}
 
-		var wg sync.WaitGroup
-		results := make([]*TransactionsWithReceipts, 100)
-		tot := 0
-		for i := 0; i < int(minPageSize-resultCount); i++ {
-			var blockNum uint64
-			blockNum, eof, err = multiIter()
-			if err != nil {
-				return nil, err
-			}
-			if eof {
-				break
-			}
-
-			wg.Add(1)
-			tot++
-			go api.traceOneBlock(ctx, &wg, addr, chainConfig, i, blockNum, results)
+		var results []*TransactionsWithReceipts
+		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, pageSize, resultCount, callFromToProvider)
+		if err != nil {
+			return nil, err
 		}
-		wg.Wait()
 
-		for i := 0; i < tot; i++ {
-			r := results[i]
+		for _, r := range results {
 			if r == nil {
-				return nil, errors.New("XXXX")
+				return nil, errors.New("internal error during search tracing")
 			}
 
-			resultCount += uint16(len(r.Txs))
 			for i := len(r.Txs) - 1; i >= 0; i-- {
 				txs = append(txs, r.Txs[i])
 			}
@@ -191,343 +186,131 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 				receipts = append(receipts, r.Receipts[i])
 			}
 
-			if resultCount >= minPageSize {
+			resultCount += uint16(len(r.Txs))
+			if resultCount >= pageSize {
 				break
 			}
 		}
 	}
 
-	return &TransactionsWithReceipts{txs, receipts, blockNum == 0, eof}, nil
+	return &TransactionsWithReceipts{txs, receipts, isFirstPage, !hasMore}, nil
 }
 
-func newSearchBackIterator(cursor kv.Cursor, addr common.Address, maxBlock uint64) func() (uint64, bool, error) {
-	search := make([]byte, common.AddressLength+8)
-	copy(search[:common.AddressLength], addr.Bytes())
-	if maxBlock == 0 {
-		binary.BigEndian.PutUint64(search[common.AddressLength:], ^uint64(0))
-	} else {
-		binary.BigEndian.PutUint64(search[common.AddressLength:], maxBlock)
-	}
-
-	first := true
-	var iter roaring64.IntIterable64
-
-	return func() (uint64, bool, error) {
-		if first {
-			first = false
-			k, v, err := cursor.Seek(search)
-			if err != nil {
-				return 0, true, err
-			}
-			if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
-				return 0, true, nil
-			}
-
-			bitmap := roaring64.New()
-			if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
-				return 0, true, err
-			}
-			iter = bitmap.ReverseIterator()
-		}
-
-		var blockNum uint64
-		for {
-			if !iter.HasNext() {
-				// Try and check previous shard
-				k, v, err := cursor.Prev()
-				if err != nil {
-					return 0, true, err
-				}
-				if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
-					return 0, true, nil
-				}
-
-				bitmap := roaring64.New()
-				if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
-					return 0, true, err
-				}
-				iter = bitmap.ReverseIterator()
-			}
-			blockNum = iter.Next()
-
-			if maxBlock == 0 || blockNum < maxBlock {
-				break
-			}
-		}
-		return blockNum, false, nil
-	}
-}
-
-func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, minPageSize uint16) (*TransactionsWithReceipts, error) {
+// Search transactions that touch a certain address.
+//
+// It searches forward a certain block (excluding); the results are sorted descending.
+//
+// The pageSize indicates how many txs may be returned. If there are less txs than pageSize,
+// they are just returned. But it may return a little more than pageSize if there are more txs
+// than the necessary to fill pageSize in the last found block, i.e., let's say you want pageSize == 25,
+// you already found 24 txs, the next block contains 4 matches, then this function will return 28 txs.
+func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error) {
 	dbtx, err := api.db.BeginRo(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer dbtx.Rollback()
 
-	fromCursor, err := dbtx.Cursor(kv.CallFromIndex)
+	callFromCursor, err := dbtx.Cursor(kv.CallFromIndex)
 	if err != nil {
 		return nil, err
 	}
-	defer fromCursor.Close()
-	toCursor, err := dbtx.Cursor(kv.CallToIndex)
+	defer callFromCursor.Close()
+
+	callToCursor, err := dbtx.Cursor(kv.CallToIndex)
 	if err != nil {
 		return nil, err
 	}
-	defer toCursor.Close()
+	defer callToCursor.Close()
 
 	chainConfig, err := api.chainConfig(dbtx)
 	if err != nil {
 		return nil, err
 	}
 
-	// Initialize search cursors at the first shard >= desired block number
-	resultCount := uint16(0)
-	fromIter := newSearchForwardIterator(fromCursor, addr, blockNum)
-	toIter := newSearchForwardIterator(toCursor, addr, blockNum)
-
-	txs := make([]*RPCTransaction, 0)
-	receipts := make([]map[string]interface{}, 0)
-
-	multiIter, err := newMultiIterator(true, fromIter, toIter)
-	if err != nil {
-		return nil, err
+	isLastPage := false
+	if blockNum == 0 {
+		isLastPage = true
+	} else {
+		// Internal search code considers blockNum [including], so adjust the value
+		blockNum++
 	}
-	eof := false
+
+	// Initialize search cursors at the first shard >= desired block number
+	callFromProvider := NewCallCursorForwardBlockProvider(callFromCursor, addr, blockNum)
+	callToProvider := NewCallCursorForwardBlockProvider(callToCursor, addr, blockNum)
+	callFromToProvider := newCallFromToBlockProvider(true, callFromProvider, callToProvider)
+
+	txs := make([]*RPCTransaction, 0, pageSize)
+	receipts := make([]map[string]interface{}, 0, pageSize)
+
+	resultCount := uint16(0)
+	hasMore := true
 	for {
-		if resultCount >= minPageSize || eof {
+		if resultCount >= pageSize || !hasMore {
 			break
 		}
 
-		var wg sync.WaitGroup
-		results := make([]*TransactionsWithReceipts, 100)
-		tot := 0
-		for i := 0; i < int(minPageSize-resultCount); i++ {
-			var blockNum uint64
-			blockNum, eof, err = multiIter()
-			if err != nil {
-				return nil, err
-			}
-			if eof {
-				break
-			}
-
-			wg.Add(1)
-			tot++
-			go api.traceOneBlock(ctx, &wg, addr, chainConfig, i, blockNum, results)
+		var results []*TransactionsWithReceipts
+		results, hasMore, err = api.traceBlocks(ctx, addr, chainConfig, pageSize, resultCount, callFromToProvider)
+		if err != nil {
+			return nil, err
 		}
-		wg.Wait()
 
-		for i := 0; i < tot; i++ {
-			r := results[i]
+		for _, r := range results {
 			if r == nil {
-				return nil, errors.New("XXXX")
+				return nil, errors.New("internal error during search tracing")
 			}
+
+			txs = append(txs, r.Txs...)
+			receipts = append(receipts, r.Receipts...)
 
 			resultCount += uint16(len(r.Txs))
-			for _, v := range r.Txs {
-				txs = append([]*RPCTransaction{v}, txs...)
-			}
-			for _, v := range r.Receipts {
-				receipts = append([]map[string]interface{}{v}, receipts...)
-			}
-
-			if resultCount > minPageSize {
+			if resultCount >= pageSize {
 				break
 			}
 		}
 	}
 
-	return &TransactionsWithReceipts{txs, receipts, eof, blockNum == 0}, nil
+	// Reverse results
+	lentxs := len(txs)
+	for i := 0; i < lentxs/2; i++ {
+		txs[i], txs[lentxs-1-i] = txs[lentxs-1-i], txs[i]
+		receipts[i], receipts[lentxs-1-i] = receipts[lentxs-1-i], receipts[i]
+	}
+	return &TransactionsWithReceipts{txs, receipts, !hasMore, isLastPage}, nil
 }
 
-func newSearchForwardIterator(cursor kv.Cursor, addr common.Address, minBlock uint64) func() (uint64, bool, error) {
-	search := make([]byte, common.AddressLength+8)
-	copy(search[:common.AddressLength], addr.Bytes())
-	if minBlock == 0 {
-		binary.BigEndian.PutUint64(search[common.AddressLength:], uint64(0))
-	} else {
-		binary.BigEndian.PutUint64(search[common.AddressLength:], minBlock)
-	}
+func (api *OtterscanAPIImpl) traceBlocks(ctx context.Context, addr common.Address, chainConfig *params.ChainConfig, pageSize, resultCount uint16, callFromToProvider BlockProvider) ([]*TransactionsWithReceipts, bool, error) {
+	var wg sync.WaitGroup
 
-	first := true
-	var iter roaring64.IntIterable64
+	// Estimate the common case of user address having at most 1 interaction/block and
+	// trace N := remaining page matches as number of blocks to trace concurrently.
+	// TODO: this is not optimimal for big contract addresses; implement some better heuristics.
+	estBlocksToTrace := pageSize - resultCount
+	results := make([]*TransactionsWithReceipts, estBlocksToTrace)
+	totalBlocksTraced := 0
+	hasMore := true
 
-	return func() (uint64, bool, error) {
-		if first {
-			first = false
-			k, v, err := cursor.Seek(search)
-			if err != nil {
-				return 0, true, err
-			}
-			if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
-				return 0, true, nil
-			}
-
-			bitmap := roaring64.New()
-			if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
-				return 0, true, err
-			}
-			iter = bitmap.Iterator()
+	for i := 0; i < int(estBlocksToTrace); i++ {
+		var nextBlock uint64
+		var err error
+		nextBlock, hasMore, err = callFromToProvider()
+		if err != nil {
+			return nil, false, err
+		}
+		// TODO: nextBlock == 0 seems redundant with hasMore == false
+		if !hasMore && nextBlock == 0 {
+			break
 		}
 
-		var blockNum uint64
-		for {
-			if !iter.HasNext() {
-				// Try and check next shard
-				k, v, err := cursor.Next()
-				if err != nil {
-					return 0, true, err
-				}
-				if !bytes.Equal(k[:common.AddressLength], addr.Bytes()) {
-					return 0, true, nil
-				}
-
-				bitmap := roaring64.New()
-				if _, err := bitmap.ReadFrom(bytes.NewReader(v)); err != nil {
-					return 0, true, err
-				}
-				iter = bitmap.Iterator()
-			}
-			blockNum = iter.Next()
-
-			if minBlock == 0 || blockNum > minBlock {
-				break
-			}
-		}
-		return blockNum, false, nil
+		wg.Add(1)
+		totalBlocksTraced++
+		go api.searchTraceBlock(ctx, &wg, addr, chainConfig, i, nextBlock, results)
 	}
-}
+	wg.Wait()
 
-func newMultiIterator(smaller bool, fromIter func() (uint64, bool, error), toIter func() (uint64, bool, error)) (func() (uint64, bool, error), error) {
-	nextFrom, fromEnd, err := fromIter()
-	if err != nil {
-		return nil, err
-	}
-	nextTo, toEnd, err := toIter()
-	if err != nil {
-		return nil, err
-	}
-
-	return func() (uint64, bool, error) {
-		if fromEnd && toEnd {
-			return 0, true, nil
-		}
-
-		var blockNum uint64
-		if !fromEnd {
-			blockNum = nextFrom
-		}
-		if !toEnd {
-			if smaller {
-				if nextTo < blockNum {
-					blockNum = nextTo
-				}
-			} else {
-				if nextTo > blockNum {
-					blockNum = nextTo
-				}
-			}
-		}
-
-		// Pull next; it may be that from AND to contains the same blockNum
-		if !fromEnd && blockNum == nextFrom {
-			nextFrom, fromEnd, err = fromIter()
-			if err != nil {
-				return 0, false, err
-			}
-		}
-		if !toEnd && blockNum == nextTo {
-			nextTo, toEnd, err = toIter()
-			if err != nil {
-				return 0, false, err
-			}
-		}
-		return blockNum, false, nil
-	}, nil
-}
-
-func (api *OtterscanAPIImpl) traceOneBlock(ctx context.Context, wg *sync.WaitGroup, addr common.Address, chainConfig *params.ChainConfig, idx int, bNum uint64, results []*TransactionsWithReceipts) {
-	defer wg.Done()
-
-	// Trace block for Txs
-	newdbtx, err := api.db.BeginRo(ctx)
-	if err != nil {
-		log.Error("ERR", "err", err)
-		// TODO: signal error
-		results[idx] = nil
-	}
-	defer newdbtx.Rollback()
-
-	_, result, err := api.traceBlock(newdbtx, ctx, bNum, addr, chainConfig)
-	if err != nil {
-		// TODO: signal error
-		log.Error("ERR", "err", err)
-		results[idx] = nil
-		//return nil, err
-	}
-	results[idx] = result
-}
-
-func (api *OtterscanAPIImpl) traceBlock(dbtx kv.Tx, ctx context.Context, blockNum uint64, searchAddr common.Address, chainConfig *params.ChainConfig) (bool, *TransactionsWithReceipts, error) {
-	rpcTxs := make([]*RPCTransaction, 0)
-	receipts := make([]map[string]interface{}, 0)
-
-	// Retrieve the transaction and assemble its EVM context
-	blockHash, err := rawdb.ReadCanonicalHash(dbtx, blockNum)
-	if err != nil {
-		return false, nil, err
-	}
-
-	block, senders, err := rawdb.ReadBlockWithSenders(dbtx, blockHash, blockNum)
-	if err != nil {
-		return false, nil, err
-	}
-
-	reader := state.NewPlainState(dbtx, blockNum-1)
-	stateCache := shards.NewStateCache(32, 0 /* no limit */)
-	cachedReader := state.NewCachedReader(reader, stateCache)
-	noop := state.NewNoopWriter()
-	cachedWriter := state.NewCachedWriter(noop, stateCache)
-
-	ibs := state.New(cachedReader)
-	signer := types.MakeSigner(chainConfig, blockNum)
-
-	getHeader := func(hash common.Hash, number uint64) *types.Header {
-		return rawdb.ReadHeader(dbtx, hash, number)
-	}
-	engine := ethash.NewFaker()
-	checkTEVM := ethdb.GetHasTEVM(dbtx)
-
-	blockReceipts := rawdb.ReadReceipts(dbtx, block, senders)
-	header := block.Header()
-	found := false
-	for idx, tx := range block.Transactions() {
-		ibs.Prepare(tx.Hash(), block.Hash(), idx)
-
-		msg, _ := tx.AsMessage(*signer, header.BaseFee)
-
-		tracer := otterscan.NewTouchTracer(searchAddr)
-		BlockContext := core.NewEVMBlockContext(header, getHeader, engine, nil, checkTEVM)
-		TxContext := core.NewEVMTxContext(msg)
-
-		vmenv := vm.NewEVM(BlockContext, TxContext, ibs, chainConfig, vm.Config{Debug: true, Tracer: tracer})
-		if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(tx.GetGas()), true /* refunds */, false /* gasBailout */); err != nil {
-			return false, nil, err
-		}
-		_ = ibs.FinalizeTx(vmenv.ChainConfig().Rules(block.NumberU64()), cachedWriter)
-
-		if tracer.Found {
-			rpcTx := newRPCTransaction(tx, block.Hash(), blockNum, uint64(idx), block.BaseFee())
-			mReceipt := marshalReceipt(blockReceipts[idx], tx, chainConfig, block)
-			mReceipt["timestamp"] = block.Time()
-			rpcTxs = append(rpcTxs, rpcTx)
-			receipts = append(receipts, mReceipt)
-			found = true
-		}
-	}
-
-	return found, &TransactionsWithReceipts{rpcTxs, receipts, false, false}, nil
+	return results[:totalBlocksTraced], hasMore, nil
 }
 
 func (api *OtterscanAPIImpl) delegateGetBlockByNumber(tx kv.Tx, b *types.Block, number rpc.BlockNumber, inclTx bool) (map[string]interface{}, error) {
