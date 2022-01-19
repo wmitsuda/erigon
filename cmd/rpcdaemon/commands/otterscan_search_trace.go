@@ -25,18 +25,17 @@ func (api *OtterscanAPIImpl) searchTraceBlock(ctx context.Context, wg *sync.Wait
 	// Trace block for Txs
 	newdbtx, err := api.db.BeginRo(ctx)
 	if err != nil {
-		log.Error("ERR", "err", err)
-		// TODO: signal error
+		log.Error("Search trace error", "err", err)
 		results[idx] = nil
+		return
 	}
 	defer newdbtx.Rollback()
 
 	_, result, err := api.traceBlock(newdbtx, ctx, bNum, addr, chainConfig)
 	if err != nil {
-		// TODO: signal error
-		log.Error("ERR", "err", err)
+		log.Error("Search trace error", "err", err)
 		results[idx] = nil
-		//return nil, err
+		return
 	}
 	results[idx] = result
 }

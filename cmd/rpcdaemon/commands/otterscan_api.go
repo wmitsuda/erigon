@@ -176,7 +176,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 
 		for _, r := range results {
 			if r == nil {
-				return nil, errors.New("XXXX")
+				return nil, errors.New("internal error during search tracing")
 			}
 
 			for i := len(r.Txs) - 1; i >= 0; i-- {
@@ -259,7 +259,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 
 		for _, r := range results {
 			if r == nil {
-				return nil, errors.New("XXXX")
+				return nil, errors.New("internal error during search tracing")
 			}
 
 			txs = append(txs, r.Txs...)
