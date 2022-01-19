@@ -115,7 +115,7 @@ func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash com
 
 // Search transactions that touch a certain address.
 //
-// It searches back a certain block (including); the results are sorted descending.
+// It searches back a certain block (excluding); the results are sorted descending.
 //
 // The pageSize indicates how many txs may be returned. If there are less txs than pageSize,
 // they are just returned. But it may return a little more than pageSize if there are more txs
@@ -143,6 +143,14 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 	chainConfig, err := api.chainConfig(dbtx)
 	if err != nil {
 		return nil, err
+	}
+
+	isFirstPage := false
+	if blockNum == 0 {
+		isFirstPage = true
+	} else {
+		// Internal search code considers blockNum [including], so adjust the value
+		blockNum--
 	}
 
 	// Initialize search cursors at the first shard >= desired block number
@@ -185,12 +193,12 @@ func (api *OtterscanAPIImpl) SearchTransactionsBefore(ctx context.Context, addr 
 		}
 	}
 
-	return &TransactionsWithReceipts{txs, receipts, blockNum == 0, !hasMore}, nil
+	return &TransactionsWithReceipts{txs, receipts, isFirstPage, !hasMore}, nil
 }
 
 // Search transactions that touch a certain address.
 //
-// It searches forward a certain block (including); the results are sorted descending.
+// It searches forward a certain block (excluding); the results are sorted descending.
 //
 // The pageSize indicates how many txs may be returned. If there are less txs than pageSize,
 // they are just returned. But it may return a little more than pageSize if there are more txs
@@ -218,6 +226,14 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 	chainConfig, err := api.chainConfig(dbtx)
 	if err != nil {
 		return nil, err
+	}
+
+	isLastPage := false
+	if blockNum == 0 {
+		isLastPage = true
+	} else {
+		// Internal search code considers blockNum [including], so adjust the value
+		blockNum++
 	}
 
 	// Initialize search cursors at the first shard >= desired block number
@@ -262,7 +278,7 @@ func (api *OtterscanAPIImpl) SearchTransactionsAfter(ctx context.Context, addr c
 		txs[i], txs[lentxs-1-i] = txs[lentxs-1-i], txs[i]
 		receipts[i], receipts[lentxs-1-i] = receipts[lentxs-1-i], receipts[i]
 	}
-	return &TransactionsWithReceipts{txs, receipts, !hasMore, blockNum == 0}, nil
+	return &TransactionsWithReceipts{txs, receipts, !hasMore, isLastPage}, nil
 }
 
 func (api *OtterscanAPIImpl) traceBlocks(ctx context.Context, addr common.Address, chainConfig *params.ChainConfig, pageSize, resultCount uint16, callFromToProvider BlockProvider) ([]*TransactionsWithReceipts, bool, error) {
