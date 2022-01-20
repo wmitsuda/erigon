@@ -16,7 +16,7 @@ For example `v2021.12.03` means it is the 3rd release of December, 2021.
 
 They do weekly stable releases. This repository only builds on top of stable tags. We usually follow their releases 1:1 a few days after, so you might expect a corresponding patched release for every Erigon stable release, but it is not guaranteed, please check if the corresponding tag actually exists in our repository.
 
-Our tag format is `<erigon-tag>-otterscan`, so for Erigon `v2021.12.03` there should be a `v2021.12.03-otterscan` tagged release.
+Our tag format is `<erigon-tag>[-fix]-otterscan`, so for Erigon `v2021.12.03` there should be a `v2021.12.03-otterscan` tagged release. If there is some fix from our side on top of our own tag, we would add an additional suffix before `-otterscan`, like `v2021.12.03-1-otterscan`.
 
 You can checkout the desired tag from the git repository and follow the same build instructions from the upstream Erigon or download the automated built images from [Docker Hub](https://hub.docker.com/r/otterscan/erigon/tags).
 
