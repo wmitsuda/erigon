@@ -334,10 +334,17 @@ func (api *OtterscanAPIImpl) delegateGetBlockByNumber(tx kv.Tx, b *types.Block, 
 	return response, err
 }
 
-func (api *OtterscanAPIImpl) delegateIssuance(tx kv.Tx, block *types.Block, chainConfig *params.ChainConfig) (Issuance, error) {
+// TODO: temporary workaround due to API breakage from watch_the_burn
+type internalIssuance struct {
+	BlockReward string `json:"blockReward,omitempty"`
+	UncleReward string `json:"uncleReward,omitempty"`
+	Issuance    string `json:"issuance,omitempty"`
+}
+
+func (api *OtterscanAPIImpl) delegateIssuance(tx kv.Tx, block *types.Block, chainConfig *params.ChainConfig) (internalIssuance, error) {
 	if chainConfig.Ethash == nil {
 		// Clique for example has no issuance
-		return Issuance{}, nil
+		return internalIssuance{}, nil
 	}
 
 	minerReward, uncleRewards := ethash.AccumulateRewards(chainConfig, block.Header(), block.Uncles())
@@ -347,7 +354,7 @@ func (api *OtterscanAPIImpl) delegateIssuance(tx kv.Tx, block *types.Block, chai
 		issuance.Add(&issuance, &p)
 	}
 
-	var ret Issuance
+	var ret internalIssuance
 	ret.BlockReward = hexutil.EncodeBig(minerReward.ToBig())
 	ret.Issuance = hexutil.EncodeBig(issuance.ToBig())
 	issuance.Sub(&issuance, &minerReward)
