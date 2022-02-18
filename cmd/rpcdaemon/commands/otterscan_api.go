@@ -32,7 +32,7 @@ import (
 )
 
 // API_LEVEL Must be incremented every time new additions are made
-const API_LEVEL = 6
+const API_LEVEL = 7
 
 type TransactionsWithReceipts struct {
 	Txs       []*RPCTransaction        `json:"txs"`
@@ -47,6 +47,7 @@ type OtterscanAPI interface {
 	SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error)
 	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error)
 	GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error)
+	GetBlockDetailsByHash(ctx context.Context, hash common.Hash) (map[string]interface{}, error)
 	GetBlockTransactions(ctx context.Context, number rpc.BlockNumber, pageNumber uint8, pageSize uint8) (map[string]interface{}, error)
 	HasCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (bool, error)
 	TraceTransaction(ctx context.Context, hash common.Hash) ([]*otterscan.TraceEntry, error)
