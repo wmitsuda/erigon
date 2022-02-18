@@ -32,7 +32,7 @@ import (
 )
 
 // API_LEVEL Must be incremented every time new additions are made
-const API_LEVEL = 6
+const API_LEVEL = 7
 
 type TransactionsWithReceipts struct {
 	Txs       []*RPCTransaction        `json:"txs"`
@@ -47,6 +47,7 @@ type OtterscanAPI interface {
 	SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error)
 	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error)
 	GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error)
+	GetBlockDetailsByHash(ctx context.Context, hash common.Hash) (map[string]interface{}, error)
 	GetBlockTransactions(ctx context.Context, number rpc.BlockNumber, pageNumber uint8, pageSize uint8) (map[string]interface{}, error)
 	HasCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (bool, error)
 	TraceTransaction(ctx context.Context, hash common.Hash) ([]*otterscan.TraceEntry, error)
@@ -397,46 +398,6 @@ func (api *OtterscanAPIImpl) getBlockWithSenders(number rpc.BlockNumber, tx kv.T
 
 	block, senders, err := rawdb.ReadBlockByNumberWithSenders(tx, n)
 	return block, senders, err
-}
-
-func (api *OtterscanAPIImpl) GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error) {
-	tx, err := api.db.BeginRo(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
-	b, senders, err := api.getBlockWithSenders(number, tx)
-	if err != nil {
-		return nil, err
-	}
-	if b == nil {
-		return nil, nil
-	}
-
-	chainConfig, err := api.chainConfig(tx)
-	if err != nil {
-		return nil, err
-	}
-
-	getBlockRes, err := api.delegateGetBlockByNumber(tx, b, number, false)
-	if err != nil {
-		return nil, err
-	}
-	getIssuanceRes, err := api.delegateIssuance(tx, b, chainConfig)
-	if err != nil {
-		return nil, err
-	}
-	feesRes, err := api.delegateBlockFees(ctx, tx, b, senders, chainConfig)
-	if err != nil {
-		return nil, err
-	}
-
-	response := map[string]interface{}{}
-	response["block"] = getBlockRes
-	response["issuance"] = getIssuanceRes
-	response["totalFees"] = hexutil.Uint64(feesRes)
-	return response, nil
 }
 
 func (api *OtterscanAPIImpl) GetBlockTransactions(ctx context.Context, number rpc.BlockNumber, pageNumber uint8, pageSize uint8) (map[string]interface{}, error) {
