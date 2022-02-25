@@ -479,7 +479,7 @@ func (api *OtterscanAPIImpl) HasCode(ctx context.Context, address common.Address
 	}
 	defer tx.Rollback()
 
-	blockNumber, _, err := rpchelper.GetBlockNumber(blockNrOrHash, tx, api.filters)
+	blockNumber, _, _, err := rpchelper.GetBlockNumber(blockNrOrHash, tx, api.filters)
 	if err != nil {
 		return false, err
 	}
