@@ -33,6 +33,7 @@ func APIList(ctx context.Context, db kv.RoDB,
 	dbImpl := NewDBAPIImpl() /* deprecated */
 	adminImpl := NewAdminAPI(eth)
 	parityImpl := NewParityAPIImpl(db)
+	otsImpl := NewOtterscanAPI(base, db)
 
 	for _, enabledAPI := range cfg.API {
 		switch enabledAPI {
@@ -104,6 +105,13 @@ func APIList(ctx context.Context, db kv.RoDB,
 				Namespace: "parity",
 				Public:    false,
 				Service:   ParityAPI(parityImpl),
+				Version:   "1.0",
+			})
+		case "ots":
+			defaultAPIList = append(defaultAPIList, rpc.API{
+				Namespace: "ots",
+				Public:    true,
+				Service:   OtterscanAPI(otsImpl),
 				Version:   "1.0",
 			})
 		}
