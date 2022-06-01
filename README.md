@@ -14,11 +14,18 @@ Erigon versioning schema follows this format: `YYYY.MM.nn`, where:
 
 For example `v2021.12.03` means it is the 3rd release of December, 2021.
 
-They do weekly stable releases. This repository only builds on top of stable tags. We usually follow their releases 1:1 a few days after, so you might expect a corresponding patched release for every Erigon stable release, but it is not guaranteed, please check if the corresponding tag actually exists in our repository.
+They do almost-weekly releases. This repository only builds on top of tags. We usually follow their releases 1:1 a few days after, so you might expect a corresponding patched release for every Erigon stable release, but it is not guaranteed, please check if the corresponding tag actually exists in our repository.
 
 Our tag format is `<erigon-tag>[-fix]-otterscan`, so for Erigon `v2021.12.03` there should be a `v2021.12.03-otterscan` tagged release. If there is some fix from our side on top of our own tag, we would add an additional suffix before `-otterscan`, like `v2021.12.03-1-otterscan`.
 
 You can checkout the desired tag from the git repository and follow the same build instructions from the upstream Erigon or download the automated built images from [Docker Hub](https://hub.docker.com/r/otterscan/erigon/tags).
+
+### Branches
+
+In case you are feeling adventurous and want to follow our development branches, they are as follows:
+
+- `otterscan-develop`: this branch points to the development branch that follows Erigon 2.
+- `otterscan-erigon1`: this branch points to the _soon-to-be-abandoned_ Erigon 1 stream of patched builds. Do not use it unless you know what you are doing.
 
 ## Other docs
 
