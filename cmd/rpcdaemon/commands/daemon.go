@@ -34,6 +34,7 @@ func APIList(db kv.RoDB, borDb kv.RoDB, eth rpcinterfaces.ApiBackend, txPool txp
 	adminImpl := NewAdminAPI(eth)
 	parityImpl := NewParityAPIImpl(db)
 	borImpl := NewBorAPI(base, db, borDb) // bor (consensus) specific
+	otsImpl := NewOtterscanAPI(base, db)
 
 	for _, enabledAPI := range cfg.API {
 		switch enabledAPI {
@@ -126,6 +127,13 @@ func APIList(db kv.RoDB, borDb kv.RoDB, eth rpcinterfaces.ApiBackend, txPool txp
 				Namespace: "parity",
 				Public:    false,
 				Service:   ParityAPI(parityImpl),
+				Version:   "1.0",
+			})
+		case "ots":
+			list = append(list, rpc.API{
+				Namespace: "ots",
+				Public:    true,
+				Service:   OtterscanAPI(otsImpl),
 				Version:   "1.0",
 			})
 		}
