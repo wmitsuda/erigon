@@ -410,7 +410,7 @@ func (api *OtterscanAPIImpl) delegateIssuance(tx kv.Tx, block *types.Block, chai
 }
 
 func (api *OtterscanAPIImpl) delegateBlockFees(ctx context.Context, tx kv.Tx, block *types.Block, senders []common.Address, chainConfig *params.ChainConfig) (uint64, error) {
-	receipts, err := getReceipts(ctx, tx, chainConfig, block, senders)
+	receipts, err := api.getReceipts(ctx, tx, chainConfig, block, senders)
 	if err != nil {
 		return 0, fmt.Errorf("getReceipts error: %v", err)
 	}
@@ -476,7 +476,7 @@ func (api *OtterscanAPIImpl) GetBlockTransactions(ctx context.Context, number rp
 	}
 
 	// Receipts
-	receipts, err := getReceipts(ctx, tx, chainConfig, b, senders)
+	receipts, err := api.getReceipts(ctx, tx, chainConfig, b, senders)
 	if err != nil {
 		return nil, fmt.Errorf("getReceipts error: %v", err)
 	}
