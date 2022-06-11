@@ -23,7 +23,6 @@ import (
 	"github.com/ledgerwatch/erigon/core/vm"
 	"github.com/ledgerwatch/erigon/ethdb"
 	"github.com/ledgerwatch/erigon/internal/ethapi"
-	otterscan "github.com/ledgerwatch/erigon/otterscan/transactions"
 	"github.com/ledgerwatch/erigon/params"
 	"github.com/ledgerwatch/erigon/rpc"
 	"github.com/ledgerwatch/erigon/turbo/adapter"
@@ -43,14 +42,14 @@ type TransactionsWithReceipts struct {
 
 type OtterscanAPI interface {
 	GetApiLevel() uint8
-	GetInternalOperations(ctx context.Context, hash common.Hash) ([]*otterscan.InternalOperation, error)
+	GetInternalOperations(ctx context.Context, hash common.Hash) ([]*InternalOperation, error)
 	SearchTransactionsBefore(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error)
 	SearchTransactionsAfter(ctx context.Context, addr common.Address, blockNum uint64, pageSize uint16) (*TransactionsWithReceipts, error)
 	GetBlockDetails(ctx context.Context, number rpc.BlockNumber) (map[string]interface{}, error)
 	GetBlockDetailsByHash(ctx context.Context, hash common.Hash) (map[string]interface{}, error)
 	GetBlockTransactions(ctx context.Context, number rpc.BlockNumber, pageNumber uint8, pageSize uint8) (map[string]interface{}, error)
 	HasCode(ctx context.Context, address common.Address, blockNrOrHash rpc.BlockNumberOrHash) (bool, error)
-	TraceTransaction(ctx context.Context, hash common.Hash) ([]*otterscan.TraceEntry, error)
+	TraceTransaction(ctx context.Context, hash common.Hash) ([]*TraceEntry, error)
 	GetTransactionError(ctx context.Context, hash common.Hash) (hexutil.Bytes, error)
 	GetTransactionBySenderAndNonce(ctx context.Context, addr common.Address, nonce uint64) (*common.Hash, error)
 	GetContractCreator(ctx context.Context, addr common.Address) (*ContractCreatorData, error)
@@ -115,7 +114,7 @@ func (api *OtterscanAPIImpl) getTransactionByHash(ctx context.Context, tx kv.Tx,
 }
 
 // TODO: remove commented code from erigon1 merge after double-check
-func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash common.Hash) ([]*otterscan.InternalOperation, error) {
+func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash common.Hash) ([]*InternalOperation, error) {
 	tx, err := api.db.BeginRo(ctx)
 	if err != nil {
 		return nil, err
@@ -150,7 +149,7 @@ func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash com
 		return nil, err
 	}
 
-	tracer := otterscan.NewOperationsTracer(ctx)
+	tracer := NewOperationsTracer(ctx)
 	vmenv := vm.NewEVM(blockCtx, txCtx, ibs, chainConfig, vm.Config{Debug: true, Tracer: tracer})
 
 	if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), true, false /* gasBailout */); err != nil {
@@ -541,7 +540,7 @@ func (api *OtterscanAPIImpl) HasCode(ctx context.Context, address common.Address
 	return !acc.IsEmptyCodeHash(), nil
 }
 
-func (api *OtterscanAPIImpl) TraceTransaction(ctx context.Context, hash common.Hash) ([]*otterscan.TraceEntry, error) {
+func (api *OtterscanAPIImpl) TraceTransaction(ctx context.Context, hash common.Hash) ([]*TraceEntry, error) {
 	tx, err := api.db.BeginRo(ctx)
 	if err != nil {
 		return nil, err
@@ -576,7 +575,7 @@ func (api *OtterscanAPIImpl) TraceTransaction(ctx context.Context, hash common.H
 		return nil, err
 	}
 
-	tracer := otterscan.NewTransactionTracer(ctx)
+	tracer := NewTransactionTracer(ctx)
 	vmenv := vm.NewEVM(blockCtx, txCtx, ibs, chainConfig, vm.Config{Debug: true, Tracer: tracer})
 
 	if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), true, false /* gasBailout */); err != nil {

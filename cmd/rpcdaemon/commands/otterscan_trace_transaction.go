@@ -1,9 +1,8 @@
-package otterscan
+package commands
 
 import (
 	"context"
 	"math/big"
-	"time"
 
 	"github.com/ledgerwatch/erigon/common"
 	"github.com/ledgerwatch/erigon/common/hexutil"
@@ -20,6 +19,7 @@ type TraceEntry struct {
 }
 
 type TransactionTracer struct {
+	DefaultTracer
 	ctx     context.Context
 	Results []*TraceEntry
 }
@@ -66,24 +66,7 @@ func (l *TransactionTracer) CaptureStart(env *vm.EVM, depth int, from common.Add
 	}
 }
 
-func (l *TransactionTracer) CaptureState(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, rData []byte, depth int, err error) {
-}
-
-func (l *TransactionTracer) CaptureFault(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, depth int, err error) {
-}
-
-func (l *TransactionTracer) CaptureEnd(depth int, output []byte, startGas, endGas uint64, t time.Duration, err error) {
-}
-
 func (l *TransactionTracer) CaptureSelfDestruct(from common.Address, to common.Address, value *big.Int) {
 	last := l.Results[len(l.Results)-1]
 	l.Results = append(l.Results, &TraceEntry{"SELFDESTRUCT", last.Depth + 1, from, to, (*hexutil.Big)(value), nil})
-}
-
-func (l *TransactionTracer) CaptureAccountRead(account common.Address) error {
-	return nil
-}
-
-func (*TransactionTracer) CaptureAccountWrite(account common.Address) error {
-	return nil
 }

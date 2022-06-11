@@ -13,7 +13,6 @@ import (
 	"github.com/ledgerwatch/erigon/core/types"
 	"github.com/ledgerwatch/erigon/core/vm"
 	"github.com/ledgerwatch/erigon/ethdb"
-	otterscan "github.com/ledgerwatch/erigon/otterscan/transactions"
 	"github.com/ledgerwatch/erigon/params"
 	"github.com/ledgerwatch/erigon/turbo/shards"
 	"github.com/ledgerwatch/log/v3"
@@ -79,7 +78,7 @@ func (api *OtterscanAPIImpl) traceBlock(dbtx kv.Tx, ctx context.Context, blockNu
 
 		msg, _ := tx.AsMessage(*signer, header.BaseFee, rules)
 
-		tracer := otterscan.NewTouchTracer(searchAddr)
+		tracer := NewTouchTracer(searchAddr)
 		BlockContext := core.NewEVMBlockContext(header, getHeader, engine, nil, checkTEVM)
 		TxContext := core.NewEVMTxContext(msg)
 

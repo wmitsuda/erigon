@@ -3,7 +3,6 @@ package commands
 import (
 	"context"
 	"math/big"
-	"time"
 
 	"github.com/ledgerwatch/erigon/common"
 	"github.com/ledgerwatch/erigon/core/types"
@@ -11,6 +10,7 @@ import (
 )
 
 type CreateTracer struct {
+	DefaultTracer
 	ctx     context.Context
 	target  common.Address
 	found   bool
@@ -47,24 +47,4 @@ func (t *CreateTracer) CaptureStart(env *vm.EVM, depth int, from common.Address,
 
 	t.found = true
 	t.Creator = from
-}
-
-func (t *CreateTracer) CaptureState(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, rData []byte, depth int, err error) {
-}
-
-func (t *CreateTracer) CaptureFault(env *vm.EVM, pc uint64, op vm.OpCode, gas, cost uint64, scope *vm.ScopeContext, depth int, err error) {
-}
-
-func (t *CreateTracer) CaptureEnd(depth int, output []byte, startGas, endGas uint64, d time.Duration, err error) {
-}
-
-func (t *CreateTracer) CaptureSelfDestruct(from common.Address, to common.Address, value *big.Int) {
-}
-
-func (t *CreateTracer) CaptureAccountRead(account common.Address) error {
-	return nil
-}
-
-func (t *CreateTracer) CaptureAccountWrite(account common.Address) error {
-	return nil
 }
