@@ -113,24 +113,18 @@ func (api *OtterscanAPIImpl) getTransactionByHash(ctx context.Context, tx kv.Tx,
 	return txn, block, blockHash, blockNum, txnIndex, nil
 }
 
-func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash common.Hash) ([]*InternalOperation, error) {
-	tx, err := api.db.BeginRo(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer tx.Rollback()
-
+func (api *OtterscanAPIImpl) runTracer(ctx context.Context, tx kv.Tx, hash common.Hash, tracer vm.Tracer) error {
 	txn, block, blockHash, _, txIndex, err := api.getTransactionByHash(ctx, tx, hash)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if txn == nil {
-		return nil, fmt.Errorf("transaction %#x not found", hash)
+		return fmt.Errorf("transaction %#x not found", hash)
 	}
 
 	chainConfig, err := api.chainConfig(tx)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	getHeader := func(hash common.Hash, number uint64) *types.Header {
@@ -139,14 +133,28 @@ func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash com
 	checkTEVM := ethdb.GetHasTEVM(tx)
 	msg, blockCtx, txCtx, ibs, _, err := transactions.ComputeTxEnv(ctx, block, chainConfig, getHeader, checkTEVM, ethash.NewFaker(), tx, blockHash, txIndex)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	tracer := NewOperationsTracer(ctx)
 	vmenv := vm.NewEVM(blockCtx, txCtx, ibs, chainConfig, vm.Config{Debug: true, Tracer: tracer})
 
 	if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), true, false /* gasBailout */); err != nil {
-		return nil, fmt.Errorf("tracing failed: %v", err)
+		return fmt.Errorf("tracing failed: %v", err)
+	}
+
+	return nil
+}
+
+func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash common.Hash) ([]*InternalOperation, error) {
+	tx, err := api.db.BeginRo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	tracer := NewOperationsTracer(ctx)
+	if err := api.runTracer(ctx, tx, hash, tracer); err != nil {
+		return nil, err
 	}
 
 	return tracer.Results, nil
@@ -540,33 +548,9 @@ func (api *OtterscanAPIImpl) TraceTransaction(ctx context.Context, hash common.H
 	}
 	defer tx.Rollback()
 
-	txn, block, blockHash, _, txIndex, err := api.getTransactionByHash(ctx, tx, hash)
-	if err != nil {
-		return nil, err
-	}
-	if txn == nil {
-		return nil, fmt.Errorf("transaction %#x not found", hash)
-	}
-
-	chainConfig, err := api.chainConfig(tx)
-	if err != nil {
-		return nil, err
-	}
-
-	getHeader := func(hash common.Hash, number uint64) *types.Header {
-		return rawdb.ReadHeader(tx, hash, number)
-	}
-	checkTEVM := ethdb.GetHasTEVM(tx)
-	msg, blockCtx, txCtx, ibs, _, err := transactions.ComputeTxEnv(ctx, block, chainConfig, getHeader, checkTEVM, ethash.NewFaker(), tx, blockHash, txIndex)
-	if err != nil {
-		return nil, err
-	}
-
 	tracer := NewTransactionTracer(ctx)
-	vmenv := vm.NewEVM(blockCtx, txCtx, ibs, chainConfig, vm.Config{Debug: true, Tracer: tracer})
-
-	if _, err := core.ApplyMessage(vmenv, msg, new(core.GasPool).AddGas(msg.Gas()), true, false /* gasBailout */); err != nil {
-		return nil, fmt.Errorf("tracing failed: %v", err)
+	if err := api.runTracer(ctx, tx, hash, tracer); err != nil {
+		return nil, err
 	}
 
 	return tracer.Results, nil
