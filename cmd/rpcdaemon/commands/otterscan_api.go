@@ -72,22 +72,22 @@ func (api *OtterscanAPIImpl) GetApiLevel() uint8 {
 }
 
 // TODO: dedup from eth_txs.go#GetTransactionByHash
-func (api *OtterscanAPIImpl) getTransactionByHash(ctx context.Context, tx kv.Tx, hash common.Hash) (types.Transaction, common.Hash, uint64, uint64, error) {
+func (api *OtterscanAPIImpl) getTransactionByHash(ctx context.Context, tx kv.Tx, hash common.Hash) (types.Transaction, *types.Block, common.Hash, uint64, uint64, error) {
 	// https://infura.io/docs/ethereum/json-rpc/eth-getTransactionByHash
 	blockNum, ok, err := api.txnLookup(ctx, tx, hash)
 	if err != nil {
-		return nil, common.Hash{}, 0, 0, err
+		return nil, nil, common.Hash{}, 0, 0, err
 	}
 	if !ok {
-		return nil, common.Hash{}, 0, 0, nil
+		return nil, nil, common.Hash{}, 0, 0, nil
 	}
 
 	block, err := api.blockByNumberWithSenders(tx, blockNum)
 	if err != nil {
-		return nil, common.Hash{}, 0, 0, err
+		return nil, nil, common.Hash{}, 0, 0, err
 	}
 	if block == nil {
-		return nil, common.Hash{}, 0, 0, nil
+		return nil, nil, common.Hash{}, 0, 0, nil
 	}
 	blockHash := block.Hash()
 	var txnIndex uint64
@@ -108,12 +108,11 @@ func (api *OtterscanAPIImpl) getTransactionByHash(ctx context.Context, tx kv.Tx,
 
 	// if no transaction was found then we return nil
 	if txn == nil {
-		return nil, common.Hash{}, 0, 0, nil
+		return nil, nil, common.Hash{}, 0, 0, nil
 	}
-	return txn, blockHash, blockNum, txnIndex, nil
+	return txn, block, blockHash, blockNum, txnIndex, nil
 }
 
-// TODO: remove commented code from erigon1 merge after double-check
 func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash common.Hash) ([]*InternalOperation, error) {
 	tx, err := api.db.BeginRo(ctx)
 	if err != nil {
@@ -121,18 +120,12 @@ func (api *OtterscanAPIImpl) GetInternalOperations(ctx context.Context, hash com
 	}
 	defer tx.Rollback()
 
-	txn, blockHash, _, txIndex, err := api.getTransactionByHash(ctx, tx, hash)
-	// txn, blockHash, _, txIndex, err := rawdb.ReadTransactionByHash(tx, hash)
+	txn, block, blockHash, _, txIndex, err := api.getTransactionByHash(ctx, tx, hash)
 	if err != nil {
 		return nil, err
 	}
 	if txn == nil {
 		return nil, fmt.Errorf("transaction %#x not found", hash)
-	}
-	block, err := api.blockByHashWithSenders(tx, blockHash)
-	// block, err := rawdb.ReadBlockByHash(tx, blockHash)
-	if err != nil {
-		return nil, err
 	}
 
 	chainConfig, err := api.chainConfig(tx)
@@ -547,18 +540,12 @@ func (api *OtterscanAPIImpl) TraceTransaction(ctx context.Context, hash common.H
 	}
 	defer tx.Rollback()
 
-	txn, blockHash, _, txIndex, err := api.getTransactionByHash(ctx, tx, hash)
-	// txn, blockHash, _, txIndex, err := rawdb.ReadTransactionByHash(tx, hash)
+	txn, block, blockHash, _, txIndex, err := api.getTransactionByHash(ctx, tx, hash)
 	if err != nil {
 		return nil, err
 	}
 	if txn == nil {
 		return nil, fmt.Errorf("transaction %#x not found", hash)
-	}
-	block, err := api.blockByHashWithSenders(tx, blockHash)
-	// block, err := rawdb.ReadBlockByHash(tx, blockHash)
-	if err != nil {
-		return nil, err
 	}
 
 	chainConfig, err := api.chainConfig(tx)
@@ -592,18 +579,12 @@ func (api *OtterscanAPIImpl) GetTransactionError(ctx context.Context, hash commo
 	}
 	defer tx.Rollback()
 
-	txn, blockHash, _, txIndex, err := api.getTransactionByHash(ctx, tx, hash)
-	// txn, blockHash, _, txIndex, err := rawdb.ReadTransactionByHash(tx, hash)
+	txn, block, blockHash, _, txIndex, err := api.getTransactionByHash(ctx, tx, hash)
 	if err != nil {
 		return nil, err
 	}
 	if txn == nil {
 		return nil, fmt.Errorf("transaction %#x not found", hash)
-	}
-	block, err := api.blockByHashWithSenders(tx, blockHash)
-	// block, err := rawdb.ReadBlockByHash(tx, blockHash)
-	if err != nil {
-		return nil, err
 	}
 
 	chainConfig, err := api.chainConfig(tx)
