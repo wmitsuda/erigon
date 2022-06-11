@@ -708,11 +708,6 @@ func (api *OtterscanAPIImpl) findNonce(ctx context.Context, tx kv.Tx, addr commo
 		return false, common.Hash{}, err
 	}
 	block, senders, err := api._blockReader.BlockWithSenders(ctx, tx, hash, blockNum)
-	// senders, err := rawdb.ReadSenders(tx, hash, blockNum)
-	if err != nil {
-		return false, common.Hash{}, err
-	}
-	// body, err := rawdb.ReadBodyWithTransactions(tx, hash, blockNum)
 	if err != nil {
 		return false, common.Hash{}, err
 	}
@@ -724,7 +719,6 @@ func (api *OtterscanAPIImpl) findNonce(ctx context.Context, tx kv.Tx, addr commo
 		}
 
 		t := txs[i]
-		// t := body.Transactions[i]
 		if t.GetNonce() == nonce {
 			return true, t.Hash(), nil
 		}
