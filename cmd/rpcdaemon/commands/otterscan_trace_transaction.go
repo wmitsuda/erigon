@@ -31,7 +31,7 @@ func NewTransactionTracer(ctx context.Context) *TransactionTracer {
 	}
 }
 
-func (l *TransactionTracer) CaptureStart(env *vm.EVM, depth int, from common.Address, to common.Address, precompile bool, create bool, callType vm.CallType, input []byte, gas uint64, value *big.Int, code []byte) {
+func (t *TransactionTracer) CaptureStart(env *vm.EVM, depth int, from common.Address, to common.Address, precompile bool, create bool, callType vm.CallType, input []byte, gas uint64, value *big.Int, code []byte) {
 	if precompile {
 		return
 	}
@@ -41,27 +41,27 @@ func (l *TransactionTracer) CaptureStart(env *vm.EVM, depth int, from common.Add
 	_value := new(big.Int)
 	_value.Set(value)
 	if callType == vm.CALLT {
-		l.Results = append(l.Results, &TraceEntry{"CALL", depth, from, to, (*hexutil.Big)(_value), inputCopy})
+		t.Results = append(t.Results, &TraceEntry{"CALL", depth, from, to, (*hexutil.Big)(_value), inputCopy})
 		return
 	}
 	if callType == vm.STATICCALLT {
-		l.Results = append(l.Results, &TraceEntry{"STATICCALL", depth, from, to, nil, inputCopy})
+		t.Results = append(t.Results, &TraceEntry{"STATICCALL", depth, from, to, nil, inputCopy})
 		return
 	}
 	if callType == vm.DELEGATECALLT {
-		l.Results = append(l.Results, &TraceEntry{"DELEGATECALL", depth, from, to, nil, inputCopy})
+		t.Results = append(t.Results, &TraceEntry{"DELEGATECALL", depth, from, to, nil, inputCopy})
 		return
 	}
 	if callType == vm.CALLCODET {
-		l.Results = append(l.Results, &TraceEntry{"CALLCODE", depth, from, to, (*hexutil.Big)(_value), inputCopy})
+		t.Results = append(t.Results, &TraceEntry{"CALLCODE", depth, from, to, (*hexutil.Big)(_value), inputCopy})
 		return
 	}
 	if callType == vm.CREATET {
-		l.Results = append(l.Results, &TraceEntry{"CREATE", depth, from, to, (*hexutil.Big)(value), inputCopy})
+		t.Results = append(t.Results, &TraceEntry{"CREATE", depth, from, to, (*hexutil.Big)(value), inputCopy})
 		return
 	}
 	if callType == vm.CREATE2T {
-		l.Results = append(l.Results, &TraceEntry{"CREATE2", depth, from, to, (*hexutil.Big)(value), inputCopy})
+		t.Results = append(t.Results, &TraceEntry{"CREATE2", depth, from, to, (*hexutil.Big)(value), inputCopy})
 		return
 	}
 }

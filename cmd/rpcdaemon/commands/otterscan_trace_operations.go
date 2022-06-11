@@ -38,20 +38,20 @@ func NewOperationsTracer(ctx context.Context) *OperationsTracer {
 	}
 }
 
-func (l *OperationsTracer) CaptureStart(env *vm.EVM, depth int, from common.Address, to common.Address, precompile bool, create bool, calltype vm.CallType, input []byte, gas uint64, value *big.Int, code []byte) {
+func (t *OperationsTracer) CaptureStart(env *vm.EVM, depth int, from common.Address, to common.Address, precompile bool, create bool, calltype vm.CallType, input []byte, gas uint64, value *big.Int, code []byte) {
 	if depth == 0 {
 		return
 	}
 
 	if calltype == vm.CALLT && value.Uint64() != 0 {
-		l.Results = append(l.Results, &InternalOperation{OP_TRANSFER, from, to, (*hexutil.Big)(value)})
+		t.Results = append(t.Results, &InternalOperation{OP_TRANSFER, from, to, (*hexutil.Big)(value)})
 		return
 	}
 	if calltype == vm.CREATET {
-		l.Results = append(l.Results, &InternalOperation{OP_CREATE, from, to, (*hexutil.Big)(value)})
+		t.Results = append(t.Results, &InternalOperation{OP_CREATE, from, to, (*hexutil.Big)(value)})
 	}
 	if calltype == vm.CREATE2T {
-		l.Results = append(l.Results, &InternalOperation{OP_CREATE2, from, to, (*hexutil.Big)(value)})
+		t.Results = append(t.Results, &InternalOperation{OP_CREATE2, from, to, (*hexutil.Big)(value)})
 	}
 }
 
