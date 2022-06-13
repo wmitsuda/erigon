@@ -9,6 +9,21 @@ import (
 	"github.com/ledgerwatch/erigon/core/vm"
 )
 
+func (api *OtterscanAPIImpl) TraceTransaction(ctx context.Context, hash common.Hash) ([]*TraceEntry, error) {
+	tx, err := api.db.BeginRo(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+
+	tracer := NewTransactionTracer(ctx)
+	if _, err := api.runTracer(ctx, tx, hash, tracer); err != nil {
+		return nil, err
+	}
+
+	return tracer.Results, nil
+}
+
 type TraceEntry struct {
 	Type  string         `json:"type"`
 	Depth int            `json:"depth"`
