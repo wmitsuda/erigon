@@ -1,3 +1,35 @@
+# Otterscan JSON-RPC API Extensions for Erigon
+
+This is a fork of Erigon containing JSON-RPC API method extensions used by [Otterscan](https://github.com/wmitsuda/otterscan).
+
+> **Please be sure you have a working Erigon installation before trying this fork.**
+
+## Running
+
+Erigon versioning schema follows this format: `YYYY.MM.nn`, where:
+
+- `YYYY` is the year
+- `MM` is the month
+- `nn` is an incremental number starting with 1 representing the nn-th release of the month
+
+For example `v2021.12.03` means it is the 3rd release of December, 2021.
+
+They do weekly stable releases. This repository only builds on top of stable tags. We usually follow their releases 1:1 a few days after, so you might expect a corresponding patched release for every Erigon stable release, but it is not guaranteed, please check if the corresponding tag actually exists in our repository.
+
+Our tag format is `<erigon-tag>[-fix]-otterscan`, so for Erigon `v2021.12.03` there should be a `v2021.12.03-otterscan` tagged release. If there is some fix from our side on top of our own tag, we would add an additional suffix before `-otterscan`, like `v2021.12.03-1-otterscan`.
+
+You can checkout the desired tag from the git repository and follow the same build instructions from the upstream Erigon or download the automated built images from [Docker Hub](https://hub.docker.com/r/otterscan/erigon/tags).
+
+## Other docs
+
+The Otterscan's JSON-RPC API extensions are documented [here](https://github.com/wmitsuda/otterscan/blob/develop/docs/custom-jsonrpc.md).
+
+All instructions about how to run Otterscan are in the [Otterscan repository](https://github.com/wmitsuda/otterscan).
+
+The rest of this document contains the original Erigon README content.
+
+---
+
 # Erigon
 
 Erigon is an implementation of Ethereum (aka "Ethereum client"), on the efficiency frontier, written in Go.
