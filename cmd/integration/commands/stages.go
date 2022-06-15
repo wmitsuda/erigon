@@ -219,7 +219,7 @@ var cmdStageOtsMinerIndex = &cobra.Command{
 	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, _ := common2.RootContext()
 		logger := log.New()
-		db := openDB(chaindata, logger, true)
+		db := openDB(dbCfg(kv.ChainDB, logger, chaindata), true)
 		defer db.Close()
 
 		if err := stageOtsMinerIndex(db, ctx); err != nil {

@@ -1,13 +1,19 @@
 package stagedsync
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"time"
 
+	"github.com/RoaringBitmap/roaring/roaring64"
 	"github.com/ledgerwatch/erigon-lib/kv"
+	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/common/dbutils"
 	"github.com/ledgerwatch/erigon/eth/stagedsync/stages"
 	"github.com/ledgerwatch/erigon/params"
 	"github.com/ledgerwatch/erigon/turbo/services"
+	"github.com/ledgerwatch/log/v3"
 )
 
 type OtsMinerIndexCfg struct {
@@ -26,7 +32,6 @@ func StageOtsMinerIndexCfg(db kv.RwDB, chainConfig *params.ChainConfig, blockRea
 
 func SpawnStageOtsMinerIndex(cfg OtsMinerIndexCfg, s *StageState, tx kv.RwTx, ctx context.Context) error {
 	useExternalTx := tx != nil
-
 	if !useExternalTx {
 		var err error
 		tx, err = cfg.db.BeginRw(context.Background())
@@ -35,16 +40,61 @@ func SpawnStageOtsMinerIndex(cfg OtsMinerIndexCfg, s *StageState, tx kv.RwTx, ct
 		}
 		defer tx.Rollback()
 	}
-	currentBlockNumber := s.BlockNumber + 1
+
 	bodiesProgress, err := stages.GetStageProgress(tx, stages.Bodies)
 	if err != nil {
 		return fmt.Errorf("getting bodies progress: %w", err)
 	}
-	if currentBlockNumber > bodiesProgress {
+
+	// start/end block are inclusive
+	startBlock := s.BlockNumber + 1
+	endBlock := bodiesProgress
+	if startBlock > endBlock {
 		return nil
 	}
 
-	if err := s.Update(tx, bodiesProgress); err != nil {
+	// Log timer
+	logEvery := time.NewTicker(logInterval)
+	defer logEvery.Stop()
+
+	minerIdx, err := tx.RwCursor(kv.OtsMinerIndex)
+	if err != nil {
+		return err
+	}
+	defer minerIdx.Close()
+
+	stopped := false
+	currentBlock := startBlock
+	for ; currentBlock <= endBlock && !stopped; currentBlock++ {
+		header, err := cfg.blockReader.HeaderByNumber(ctx, tx, currentBlock)
+		if err != nil {
+			return err
+		}
+
+		chunkKey, m, err := searchLastChunk(minerIdx, header.Coinbase)
+		if err != nil {
+			return err
+		}
+
+		if err := addBlock2Chunk(m, currentBlock, minerIdx, s, chunkKey); err != nil {
+			return err
+		}
+
+		select {
+		case <-ctx.Done():
+			stopped = true
+		case <-logEvery.C:
+			log.Info(fmt.Sprintf("[%s] Indexing miner addresses", s.LogPrefix()),
+				"block", currentBlock)
+		default:
+		}
+
+	}
+
+	if currentBlock > endBlock {
+		currentBlock--
+	}
+	if err := s.Update(tx, currentBlock); err != nil {
 		return err
 	}
 	if !useExternalTx {
@@ -52,6 +102,42 @@ func SpawnStageOtsMinerIndex(cfg OtsMinerIndexCfg, s *StageState, tx kv.RwTx, ct
 			return err
 		}
 	}
+	return nil
+}
+
+func searchLastChunk(minerIdx kv.Cursor, addr common.Address) ([]byte, *roaring64.Bitmap, error) {
+	chunkKey := dbutils.MinerIdxKey(addr)
+	k, v, err := minerIdx.SeekExact(chunkKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	m := roaring64.New()
+	if k != nil {
+		reader := bytes.NewReader(v)
+		_, err := m.ReadFrom(reader)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+
+	return chunkKey, m, nil
+}
+
+func addBlock2Chunk(m *roaring64.Bitmap, currentBlockNumber uint64, minerIdx kv.RwCursor, s *StageState, chunkKey []byte) error {
+	m.Add(currentBlockNumber)
+	m.RunOptimize()
+
+	// log.Info(fmt.Sprintf("[%s] Miner indexed", s.LogPrefix()), "blockNum", currentBlockNumber, "chunk", hexutil.Bytes(chunkKey), "count", m.GetCardinality())
+
+	buf := bytes.NewBuffer(nil)
+	if _, err := m.WriteTo(buf); err != nil {
+		return err
+	}
+	if err := minerIdx.Put(chunkKey, buf.Bytes()); err != nil {
+		return err
+	}
+
 	return nil
 }
 

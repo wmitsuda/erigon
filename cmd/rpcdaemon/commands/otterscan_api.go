@@ -25,7 +25,7 @@ import (
 )
 
 // API_LEVEL Must be incremented every time new additions are made
-const API_LEVEL = 8
+const API_LEVEL = 9
 
 type TransactionsWithReceipts struct {
 	Txs       []*RPCTransaction        `json:"txs"`
@@ -47,6 +47,7 @@ type OtterscanAPI interface {
 	GetTransactionError(ctx context.Context, hash common.Hash) (hexutil.Bytes, error)
 	GetTransactionBySenderAndNonce(ctx context.Context, addr common.Address, nonce uint64) (*common.Hash, error)
 	GetContractCreator(ctx context.Context, addr common.Address) (*ContractCreatorData, error)
+	IsMiner(ctx context.Context, addr common.Address) (bool, error)
 }
 
 type OtterscanAPIImpl struct {

@@ -161,3 +161,5 @@ require (
 	modernc.org/strutil v1.1.1 // indirect
 	modernc.org/token v1.0.0 // indirect
 )
+
+replace github.com/ledgerwatch/erigon-lib v0.0.0-20220617182456-945b0e9e0f61 => github.com/wmitsuda/erigon-lib v0.0.0-20220620034017-97995e38f272
