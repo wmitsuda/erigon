@@ -11,6 +11,7 @@ import (
 	"github.com/ledgerwatch/erigon/common"
 	"github.com/ledgerwatch/erigon/common/dbutils"
 	"github.com/ledgerwatch/erigon/eth/stagedsync/stages"
+	"github.com/ledgerwatch/erigon/ethdb/bitmapdb"
 	"github.com/ledgerwatch/erigon/params"
 	"github.com/ledgerwatch/erigon/turbo/services"
 	"github.com/ledgerwatch/log/v3"
@@ -71,12 +72,12 @@ func SpawnStageOtsMinerIndex(cfg OtsMinerIndexCfg, s *StageState, tx kv.RwTx, ct
 			return err
 		}
 
-		chunkKey, m, err := searchLastChunk(minerIdx, header.Coinbase)
+		chunkKey, m, err := searchLastChunk(s, currentBlock, minerIdx, header.Coinbase)
 		if err != nil {
 			return err
 		}
 
-		if err := addBlock2Chunk(m, currentBlock, minerIdx, s, chunkKey); err != nil {
+		if err := addBlock2Chunk(m, currentBlock, minerIdx, header.Coinbase, s, chunkKey); err != nil {
 			return err
 		}
 
@@ -105,7 +106,7 @@ func SpawnStageOtsMinerIndex(cfg OtsMinerIndexCfg, s *StageState, tx kv.RwTx, ct
 	return nil
 }
 
-func searchLastChunk(minerIdx kv.Cursor, addr common.Address) ([]byte, *roaring64.Bitmap, error) {
+func searchLastChunk(s *StageState, currentBlock uint64, minerIdx kv.Cursor, addr common.Address) ([]byte, *roaring64.Bitmap, error) {
 	chunkKey := dbutils.MinerIdxKey(addr)
 	k, v, err := minerIdx.SeekExact(chunkKey)
 	if err != nil {
@@ -119,19 +120,40 @@ func searchLastChunk(minerIdx kv.Cursor, addr common.Address) ([]byte, *roaring6
 		if err != nil {
 			return nil, nil, err
 		}
+		// log.Info(fmt.Sprintf("[%s] Existing miner", s.LogPrefix()), "blockNumber", currentBlock, "chunkKey", hexutil.Bytes(chunkKey), "min", m.Minimum(), "max", m.Maximum(), "count", m.GetCardinality(), "size", m.GetSerializedSizeInBytes())
+	} else {
+		// log.Info(fmt.Sprintf("[%s] New miner", s.LogPrefix()), "blockNumber", currentBlock, "chunkKey", hexutil.Bytes(chunkKey))
 	}
 
 	return chunkKey, m, nil
 }
 
-func addBlock2Chunk(m *roaring64.Bitmap, currentBlockNumber uint64, minerIdx kv.RwCursor, s *StageState, chunkKey []byte) error {
+const MaxChunkSize = 4096
+
+func addBlock2Chunk(m *roaring64.Bitmap, currentBlockNumber uint64, minerIdx kv.RwCursor, addr common.Address, s *StageState, chunkKey []byte) error {
 	m.Add(currentBlockNumber)
 	m.RunOptimize()
+	tip := m
+	lft := bitmapdb.CutLeft64(m, MaxChunkSize)
+	if m.IsEmpty() {
+		tip = lft
+	} else {
+		// log.Info(fmt.Sprintf("[%s] Breaking up", s.LogPrefix()), "blockNumber", currentBlockNumber)
+		buf := bytes.NewBuffer(nil)
+		if _, err := lft.WriteTo(buf); err != nil {
+			return err
+		}
+		prevChunkKey := dbutils.MinerIdxPrevKey(addr, lft.Maximum())
+		if err := minerIdx.Put(prevChunkKey, buf.Bytes()); err != nil {
+			return err
+		}
+		// log.Info(fmt.Sprintf("[%s] Prev chunk", s.LogPrefix()), "blockNumber", currentBlockNumber, "chunkKey", hexutil.Bytes(prevChunkKey), "min", lft.Minimum(), "max", lft.Maximum(), "count", lft.GetCardinality(), "size", lft.GetSerializedSizeInBytes())
+	}
 
-	// log.Info(fmt.Sprintf("[%s] Miner indexed", s.LogPrefix()), "blockNum", currentBlockNumber, "chunk", hexutil.Bytes(chunkKey), "count", m.GetCardinality())
+	// // log.Info(fmt.Sprintf("[%s] Miner indexed", s.LogPrefix()), "blockNum", currentBlockNumber, "chunk", hexutil.Bytes(chunkKey), "count", m.GetCardinality())
 
 	buf := bytes.NewBuffer(nil)
-	if _, err := m.WriteTo(buf); err != nil {
+	if _, err := tip.WriteTo(buf); err != nil {
 		return err
 	}
 	if err := minerIdx.Put(chunkKey, buf.Bytes()); err != nil {

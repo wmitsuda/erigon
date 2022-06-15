@@ -159,3 +159,10 @@ func MinerIdxKey(addr common.Address) []byte {
 	binary.BigEndian.PutUint64(chunkKey[20:], ^uint64(0))
 	return chunkKey
 }
+
+func MinerIdxPrevKey(addr common.Address, maxBlockNum uint64) []byte {
+	chunkKey := make([]byte, 20+8)
+	copy(chunkKey, addr.Bytes())
+	binary.BigEndian.PutUint64(chunkKey[20:], maxBlockNum)
+	return chunkKey
+}
