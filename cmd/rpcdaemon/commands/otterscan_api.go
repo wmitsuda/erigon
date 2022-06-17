@@ -20,6 +20,7 @@ import (
 	"github.com/ledgerwatch/erigon/internal/ethapi"
 	"github.com/ledgerwatch/erigon/params"
 	"github.com/ledgerwatch/erigon/rpc"
+	"github.com/ledgerwatch/erigon/turbo/rpchelper"
 	"github.com/ledgerwatch/erigon/turbo/transactions"
 )
 
@@ -437,15 +438,11 @@ func (api *OtterscanAPIImpl) getBlockWithSenders(ctx context.Context, number rpc
 		return api.pendingBlock(), nil, nil
 	}
 
-	n, err := getBlockNumber(number, tx)
+	n, hash, _, err := rpchelper.GetBlockNumber(rpc.BlockNumberOrHashWithNumber(number), tx, api.filters)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	hash, err := rawdb.ReadCanonicalHash(tx, n)
-	if err != nil {
-		return nil, nil, err
-	}
 	block, senders, err := api._blockReader.BlockWithSenders(ctx, tx, hash, n)
 	return block, senders, err
 }
