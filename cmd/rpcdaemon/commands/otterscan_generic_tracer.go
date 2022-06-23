@@ -23,15 +23,12 @@ type GenericTracer interface {
 }
 
 func (api *OtterscanAPIImpl) genericTracer(dbtx kv.Tx, ctx context.Context, blockNum uint64, chainConfig *params.ChainConfig, tracer GenericTracer) error {
-	// Retrieve the transaction and assemble its EVM context
-	blockHash, err := rawdb.ReadCanonicalHash(dbtx, blockNum)
+	block, err := api.blockByNumberWithSenders(dbtx, blockNum)
 	if err != nil {
 		return err
 	}
-
-	block, _, err := rawdb.ReadBlockWithSenders(dbtx, blockHash, blockNum)
-	if err != nil {
-		return err
+	if block == nil {
+		return nil
 	}
 
 	reader := state.NewPlainState(dbtx, blockNum)
@@ -49,7 +46,6 @@ func (api *OtterscanAPIImpl) genericTracer(dbtx kv.Tx, ctx context.Context, bloc
 	engine := ethash.NewFaker()
 	checkTEVM := ethdb.GetHasTEVM(dbtx)
 
-	// blockReceipts := rawdb.ReadReceipts(dbtx, block, senders)
 	header := block.Header()
 	rules := chainConfig.Rules(block.NumberU64())
 	for idx, tx := range block.Transactions() {
