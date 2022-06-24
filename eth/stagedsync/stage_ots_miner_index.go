@@ -132,29 +132,23 @@ const MaxChunkSize = 4096
 
 func addBlock2Chunk(m *roaring64.Bitmap, currentBlockNumber uint64, minerIdx kv.RwCursor, addr common.Address, s *StageState, chunkKey []byte) error {
 	m.Add(currentBlockNumber)
-	tip := m
 	if m.GetSerializedSizeInBytes() > MaxChunkSize {
-		lft := bitmapdb.CutLeft64(m, MaxChunkSize)
-		if m.IsEmpty() {
-			tip = lft
-		} else {
-			// log.Info(fmt.Sprintf("[%s] Breaking up", s.LogPrefix()), "blockNumber", currentBlockNumber)
-			buf := bytes.NewBuffer(nil)
-			if _, err := lft.WriteTo(buf); err != nil {
-				return err
-			}
-			prevChunkKey := dbutils.MinerIdxPrevKey(addr, lft.Maximum())
-			if err := minerIdx.Put(prevChunkKey, buf.Bytes()); err != nil {
-				return err
-			}
-			// log.Info(fmt.Sprintf("[%s] Prev chunk", s.LogPrefix()), "blockNumber", currentBlockNumber, "chunkKey", hexutil.Bytes(prevChunkKey), "min", lft.Minimum(), "max", lft.Maximum(), "count", lft.GetCardinality(), "size", lft.GetSerializedSizeInBytes())
+		prev := bitmapdb.CutLeft64(m, MaxChunkSize)
+
+		// log.Info(fmt.Sprintf("[%s] Breaking up", s.LogPrefix()), "blockNumber", currentBlockNumber)
+		buf := bytes.NewBuffer(nil)
+		if _, err := prev.WriteTo(buf); err != nil {
+			return err
 		}
+		prevChunkKey := dbutils.MinerIdxPrevKey(addr, prev.Maximum())
+		if err := minerIdx.Put(prevChunkKey, buf.Bytes()); err != nil {
+			return err
+		}
+		// log.Info(fmt.Sprintf("[%s] Prev chunk", s.LogPrefix()), "blockNumber", currentBlockNumber, "chunkKey", hexutil.Bytes(prevChunkKey), "min", lft.Minimum(), "max", lft.Maximum(), "count", lft.GetCardinality(), "size", lft.GetSerializedSizeInBytes())
 	}
 
-	// // log.Info(fmt.Sprintf("[%s] Miner indexed", s.LogPrefix()), "blockNum", currentBlockNumber, "chunk", hexutil.Bytes(chunkKey), "count", m.GetCardinality())
-
 	buf := bytes.NewBuffer(nil)
-	if _, err := tip.WriteTo(buf); err != nil {
+	if _, err := m.WriteTo(buf); err != nil {
 		return err
 	}
 	if err := minerIdx.Put(chunkKey, buf.Bytes()); err != nil {
