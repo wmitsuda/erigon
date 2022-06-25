@@ -21,17 +21,23 @@ type OtsMinerIndexCfg struct {
 	db          kv.RwDB
 	chainConfig *params.ChainConfig
 	blockReader services.FullBlockReader
+	isEnabled   bool
 }
 
-func StageOtsMinerIndexCfg(db kv.RwDB, chainConfig *params.ChainConfig, blockReader services.FullBlockReader) OtsMinerIndexCfg {
+func StageOtsMinerIndexCfg(db kv.RwDB, chainConfig *params.ChainConfig, blockReader services.FullBlockReader, isEnabled bool) OtsMinerIndexCfg {
 	return OtsMinerIndexCfg{
 		db:          db,
 		chainConfig: chainConfig,
 		blockReader: blockReader,
+		isEnabled:   isEnabled,
 	}
 }
 
 func SpawnStageOtsMinerIndex(cfg OtsMinerIndexCfg, s *StageState, tx kv.RwTx, ctx context.Context) error {
+	if !cfg.isEnabled {
+		return nil
+	}
+
 	useExternalTx := tx != nil
 	if !useExternalTx {
 		var err error
@@ -159,6 +165,10 @@ func addBlock2Chunk(m *roaring64.Bitmap, currentBlockNumber uint64, minerIdx kv.
 }
 
 func UnwindOtsMinerIndex(u *UnwindState, cfg OtsMinerIndexCfg, tx kv.RwTx, ctx context.Context) error {
+	if !cfg.isEnabled {
+		return nil
+	}
+
 	useExternalTx := tx != nil
 	if !useExternalTx {
 		tx, err := cfg.db.BeginRw(ctx)
@@ -180,6 +190,10 @@ func UnwindOtsMinerIndex(u *UnwindState, cfg OtsMinerIndexCfg, tx kv.RwTx, ctx c
 }
 
 func PruneOtsMinerIndex(p *PruneState, cfg OtsMinerIndexCfg, tx kv.RwTx, ctx context.Context) error {
+	if !cfg.isEnabled {
+		return nil
+	}
+
 	useExternalTx := tx != nil
 	if !useExternalTx {
 		tx, err := cfg.db.BeginRw(ctx)

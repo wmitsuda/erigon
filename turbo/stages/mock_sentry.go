@@ -347,7 +347,7 @@ func MockWithEverything(t *testing.T, gspec *core.Genesis, key *ecdsa.PrivateKey
 			stagedsync.StageLogIndexCfg(mock.DB, prune, mock.tmpdir),
 			stagedsync.StageCallTracesCfg(mock.DB, prune, 0, mock.tmpdir),
 			stagedsync.StageTxLookupCfg(mock.DB, prune, mock.tmpdir, allSnapshots, isBor),
-			stagedsync.StageOtsMinerIndexCfg(mock.DB, mock.ChainConfig, blockReader),
+			stagedsync.StageOtsMinerIndexCfg(mock.DB, mock.ChainConfig, blockReader, true),
 			stagedsync.StageFinishCfg(mock.DB, mock.tmpdir, mock.Log, nil), true),
 		stagedsync.DefaultUnwindOrder,
 		stagedsync.DefaultPruneOrder,

@@ -702,6 +702,11 @@ var (
 		Name:  "bor.withoutheimdall",
 		Usage: "Run without Heimdall service (for testing purpose)",
 	}
+
+	OtsMinerIndexFlag = cli.BoolFlag{
+		Name:  "ots.index.miner",
+		Usage: "Enable Otterscan miner indexer stage",
+	}
 )
 
 var MetricFlags = []cli.Flag{MetricsEnabledFlag, MetricsEnabledExpensiveFlag, MetricsHTTPFlag, MetricsPortFlag}
@@ -1509,6 +1514,8 @@ func SetEthConfig(ctx *cli.Context, nodeConfig *nodecfg.Config, cfg *ethconfig.C
 	if ctx.GlobalIsSet(OverrideMergeNetsplitBlock.Name) {
 		cfg.OverrideMergeNetsplitBlock = GlobalBig(ctx, OverrideMergeNetsplitBlock.Name)
 	}
+
+	cfg.OtsIndexMiner = ctx.GlobalIsSet(OtsMinerIndexFlag.Name)
 }
 
 // SetDNSDiscoveryDefaults configures DNS discovery with the given URL if
