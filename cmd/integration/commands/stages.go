@@ -212,6 +212,24 @@ var cmdStageTxLookup = &cobra.Command{
 		return nil
 	},
 }
+
+var cmdStageOtsApprovalIndex = &cobra.Command{
+	Use:   "stage_ots_approval_index",
+	Short: "",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, _ := common2.RootContext()
+		logger := log.New()
+		db := openDB(dbCfg(kv.ChainDB, logger, chaindata), true)
+		defer db.Close()
+
+		if err := stageOtsApprovalIndex(db, ctx); err != nil {
+			log.Error("Error", "err", err)
+			return err
+		}
+		return nil
+	},
+}
+
 var cmdPrintStages = &cobra.Command{
 	Use:   "print_stages",
 	Short: "",
@@ -406,6 +424,11 @@ func init() {
 	withHeimdall(cmdStageTxLookup)
 
 	rootCmd.AddCommand(cmdStageTxLookup)
+
+	withReset(cmdStageOtsApprovalIndex)
+	withDataDir(cmdStageOtsApprovalIndex)
+
+	rootCmd.AddCommand(cmdStageOtsApprovalIndex)
 
 	withDataDir(cmdPrintMigrations)
 	rootCmd.AddCommand(cmdPrintMigrations)
@@ -1038,6 +1061,27 @@ func stageTxLookup(db kv.RwDB, ctx context.Context) error {
 			return err
 		}
 	}
+	return tx.Commit()
+}
+
+func stageOtsApprovalIndex(db kv.RwDB, ctx context.Context) error {
+	_, _, _, _, sync, _, _ := newSync(ctx, db, nil)
+	must(sync.SetCurrentStage(stages.OtsApprovalIndex))
+
+	tx, err := db.BeginRw(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if reset {
+		err = reset2.ResetOtsApprovalIndex(tx)
+		if err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
+
 	return tx.Commit()
 }
 

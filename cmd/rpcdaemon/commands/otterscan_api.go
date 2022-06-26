@@ -25,7 +25,7 @@ import (
 )
 
 // API_LEVEL Must be incremented every time new additions are made
-const API_LEVEL = 8
+const API_LEVEL = 9
 
 type TransactionsWithReceipts struct {
 	Txs       []*RPCTransaction        `json:"txs"`

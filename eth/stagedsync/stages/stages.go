@@ -44,6 +44,7 @@ var (
 	CallTraces          SyncStage = "CallTraces"          // Generating call traces index
 	TxLookup            SyncStage = "TxLookup"            // Generating transactions lookup index
 	Issuance            SyncStage = "WatchTheBurn"        // Compute ether issuance for each block
+	OtsApprovalIndex    SyncStage = "OTS_ApprovalsIndex"  // Index token approvals
 	Finish              SyncStage = "Finish"              // Nominal stage after all other stages
 
 	MiningCreateBlock SyncStage = "MiningCreateBlock"
@@ -65,6 +66,7 @@ var AllStages = []SyncStage{
 	LogIndex,
 	CallTraces,
 	TxLookup,
+	OtsApprovalIndex,
 	Finish,
 }
 
