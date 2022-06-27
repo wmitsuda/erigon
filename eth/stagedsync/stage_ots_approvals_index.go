@@ -3,9 +3,12 @@ package stagedsync
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/ledgerwatch/erigon-lib/kv"
+	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/core/rawdb"
 	"github.com/ledgerwatch/erigon/eth/stagedsync/stages"
 	"github.com/ledgerwatch/erigon/params"
 	"github.com/ledgerwatch/erigon/turbo/services"
@@ -65,12 +68,54 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 	// }
 	// defer minerIdx.Close()
 
+	f, err := os.OpenFile("approvals.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
 	stopped := false
 	currentBlock := startBlock
-	for ; currentBlock <= endBlock && !stopped; currentBlock++ {
+	blockCount := 0
+	txCount := 0
+	approvalHash := common.HexToHash("0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925")
+	for ; currentBlock <= endBlock && !stopped; /*&& currentBlock < 1023000;*/ currentBlock++ {
 		_, err := cfg.blockReader.HeaderByNumber(ctx, tx, currentBlock)
 		if err != nil {
 			return err
+		}
+
+		// log.Info(fmt.Sprintf("[%s] Approvals index", s.LogPrefix()), "blockNumber", header.Number)
+		receipts := rawdb.ReadRawReceipts(tx, currentBlock)
+		if receipts == nil {
+			// Ignore on purpose, it could be a pruned receipt, which would constitute an
+			// error, but also an empty block, which should be the case
+			// // log.Warn(fmt.Sprintf("[%s] No receipt for block", s.LogPrefix()), "block", currentBlock)
+			continue
+		}
+		// log.Info(fmt.Sprintf("[%s] Found receipt for block", s.LogPrefix()), "block", currentBlock)
+		found := false
+		// block:
+		for _, r := range receipts {
+			for _, l := range r.Logs {
+				// topics: [approvalHash, owner, spender]
+				if len(l.Topics) != 3 {
+					continue
+				}
+				if l.Topics[0] != approvalHash {
+					continue
+				}
+
+				// log.Info(fmt.Sprintf("[%s] Found approval", s.LogPrefix()), "block", currentBlock, "token", l.Address, "owner", l.Topics[1], "spender", l.Topics[2])
+				f.WriteString(fmt.Sprintf("%v;%v;%v\n", l.Address, l.Topics[1], l.Topics[2]))
+				found = true
+				txCount++
+				// break block
+			}
+		}
+		if found {
+			blockCount++
+			// cfg.blockReader.BodyWithTransactions(ctx, tx)
 		}
 
 		// 	chunkKey, m, err := searchLastChunk(s, currentBlock, minerIdx, header.Coinbase)
@@ -93,6 +138,7 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 
 	}
 
+	log.Info(fmt.Sprintf("[%s] Indexed approvals", s.LogPrefix()), "blockCount", blockCount, "txCount", txCount)
 	if currentBlock > endBlock {
 		currentBlock--
 	}
