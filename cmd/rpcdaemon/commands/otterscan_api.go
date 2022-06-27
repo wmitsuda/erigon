@@ -47,6 +47,8 @@ type OtterscanAPI interface {
 	GetTransactionError(ctx context.Context, hash common.Hash) (hexutil.Bytes, error)
 	GetTransactionBySenderAndNonce(ctx context.Context, addr common.Address, nonce uint64) (*common.Hash, error)
 	GetContractCreator(ctx context.Context, addr common.Address) (*ContractCreatorData, error)
+	GetAllAllowances(ctx context.Context) ([]*Allowance, error)
+	GetAllowances(ctx context.Context, owner common.Address) ([]*Allowance, error)
 }
 
 type OtterscanAPIImpl struct {

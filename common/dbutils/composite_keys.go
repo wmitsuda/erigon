@@ -154,12 +154,12 @@ func CompositeKeySuffix(key []byte, timestamp uint64) (composite, encodedTS []by
 }
 
 // TODO: define approvals index keys
-// func MinerIdxKey(addr common.Address) []byte {
-// 	chunkKey := make([]byte, 20+8)
-// 	copy(chunkKey, addr.Bytes())
-// 	binary.BigEndian.PutUint64(chunkKey[20:], ^uint64(0))
-// 	return chunkKey
-// }
+func ApprovalsIdxKey(addr common.Address, token common.Address) []byte {
+	key := make([]byte, common.AddressLength*2)
+	copy(key, addr.Bytes())
+	copy(key[common.AddressLength:], token.Bytes())
+	return key
+}
 
 // func MinerIdxPrevKey(addr common.Address, maxBlockNum uint64) []byte {
 // 	chunkKey := make([]byte, 20+8)

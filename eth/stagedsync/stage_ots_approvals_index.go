@@ -3,14 +3,15 @@ package stagedsync
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/ledgerwatch/erigon-lib/kv"
 	"github.com/ledgerwatch/erigon/common"
+	"github.com/ledgerwatch/erigon/common/dbutils"
 	"github.com/ledgerwatch/erigon/core/rawdb"
 	"github.com/ledgerwatch/erigon/eth/stagedsync/stages"
 	"github.com/ledgerwatch/erigon/params"
+	"github.com/ledgerwatch/erigon/rlp"
 	"github.com/ledgerwatch/erigon/turbo/services"
 	"github.com/ledgerwatch/log/v3"
 )
@@ -62,24 +63,27 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 	logEvery := time.NewTicker(logInterval)
 	defer logEvery.Stop()
 
-	// minerIdx, err := tx.RwCursor(kv.OtsMinerIndex)
-	// if err != nil {
-	// 	return err
-	// }
-	// defer minerIdx.Close()
-
-	f, err := os.OpenFile("approvals.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	// Setup approvals table
+	approvalsIdx, err := tx.RwCursor(kv.OtsApprovalsIndex)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer approvalsIdx.Close()
+
+	// Setup test dump file
+	// TODO: remove this test
+	// f, err := os.OpenFile("approvals.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	// if err != nil {
+	// 	return err
+	// }
+	// defer f.Close()
 
 	stopped := false
 	currentBlock := startBlock
 	blockCount := 0
 	txCount := 0
 	approvalHash := common.HexToHash("0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925")
-	for ; currentBlock <= endBlock && !stopped; /*&& currentBlock < 1023000;*/ currentBlock++ {
+	for ; currentBlock <= endBlock && !stopped && currentBlock < 5000000; currentBlock++ {
 		_, err := cfg.blockReader.HeaderByNumber(ctx, tx, currentBlock)
 		if err != nil {
 			return err
@@ -90,12 +94,10 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 		if receipts == nil {
 			// Ignore on purpose, it could be a pruned receipt, which would constitute an
 			// error, but also an empty block, which should be the case
-			// // log.Warn(fmt.Sprintf("[%s] No receipt for block", s.LogPrefix()), "block", currentBlock)
 			continue
 		}
 		// log.Info(fmt.Sprintf("[%s] Found receipt for block", s.LogPrefix()), "block", currentBlock)
 		found := false
-		// block:
 		for _, r := range receipts {
 			for _, l := range r.Logs {
 				// topics: [approvalHash, owner, spender]
@@ -107,25 +109,55 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 				}
 
 				// log.Info(fmt.Sprintf("[%s] Found approval", s.LogPrefix()), "block", currentBlock, "token", l.Address, "owner", l.Topics[1], "spender", l.Topics[2])
-				f.WriteString(fmt.Sprintf("%v;%v;%v\n", l.Address, l.Topics[1], l.Topics[2]))
+				// f.WriteString(fmt.Sprintf("%v;%v;%v\n", l.Address, l.Topics[1], l.Topics[2]))
 				found = true
 				txCount++
-				// break block
+
+				// Locate existing approvals for token
+				key := dbutils.ApprovalsIdxKey(common.BytesToAddress(l.Topics[1].Bytes()), l.Address)
+				_, v, err := approvalsIdx.SeekExact(key)
+				if err != nil {
+					return err
+				}
+				spenders := rawdb.Spenders{}
+				if v != nil {
+					err := rlp.DecodeBytes(v, &spenders)
+					if err != nil {
+						return err
+					}
+				}
+
+				var spenderFound *rawdb.Spender
+				for _, sp := range spenders.Spenders {
+					if sp.Spender == common.BytesToAddress(l.Topics[2].Bytes()) {
+						spenderFound = &sp
+						break
+					}
+				}
+				if spenderFound == nil {
+					// log.Info(fmt.Sprintf("[%s] New spender", s.LogPrefix()), "token", l.Address, "owner", common.BytesToAddress(l.Topics[1].Bytes()), "spender", common.BytesToAddress(l.Topics[2].Bytes()))
+					spenderFound = rawdb.NewSpender(common.BytesToAddress(l.Topics[2].Bytes()))
+					// TODO: must add block here?
+					spenderFound.Blocks = append(spenderFound.Blocks, currentBlock)
+					spenders.Spenders = append(spenders.Spenders, *spenderFound)
+				} else {
+					spenderFound.Blocks = append(spenderFound.Blocks, currentBlock)
+				}
+
+				// Update or save spenders
+				buf, err := rlp.EncodeToBytes(spenders)
+				if err != nil {
+					return err
+				}
+				// log.Info(fmt.Sprintf("[%s] Saved", s.LogPrefix()), "buf", hexutil.Encode(buf))
+				if err := approvalsIdx.Put(key, buf); err != nil {
+					return err
+				}
 			}
 		}
 		if found {
 			blockCount++
-			// cfg.blockReader.BodyWithTransactions(ctx, tx)
 		}
-
-		// 	chunkKey, m, err := searchLastChunk(s, currentBlock, minerIdx, header.Coinbase)
-		// 	if err != nil {
-		// 		return err
-		// 	}
-
-		// 	if err := addBlock2Chunk(m, currentBlock, minerIdx, header.Coinbase, s, chunkKey); err != nil {
-		// 		return err
-		// 	}
 
 		select {
 		case <-ctx.Done():
