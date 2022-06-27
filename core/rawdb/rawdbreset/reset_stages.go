@@ -229,7 +229,7 @@ func ResetTxLookup(tx kv.RwTx) error {
 }
 
 func ResetOtsApprovalIndex(tx kv.RwTx) error {
-	if err := tx.ClearBucket(kv.OtsMinerIndex); err != nil {
+	if err := tx.ClearBucket(kv.OtsApprovalsIndex); err != nil {
 		return err
 	}
 	if err := stages.SaveStageProgress(tx, stages.OtsApprovalIndex, 0); err != nil {
