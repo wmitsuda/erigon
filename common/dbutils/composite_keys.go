@@ -153,17 +153,10 @@ func CompositeKeySuffix(key []byte, timestamp uint64) (composite, encodedTS []by
 	return composite, encodedTS
 }
 
-// TODO: define approvals index keys
+// Otterscan DB
 func ApprovalsIdxKey(addr common.Address, token common.Address) []byte {
 	key := make([]byte, common.AddressLength*2)
 	copy(key, addr.Bytes())
 	copy(key[common.AddressLength:], token.Bytes())
 	return key
 }
-
-// func MinerIdxPrevKey(addr common.Address, maxBlockNum uint64) []byte {
-// 	chunkKey := make([]byte, 20+8)
-// 	copy(chunkKey, addr.Bytes())
-// 	binary.BigEndian.PutUint64(chunkKey[20:], maxBlockNum)
-// 	return chunkKey
-// }

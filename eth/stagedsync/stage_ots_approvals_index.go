@@ -80,25 +80,16 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 
 	stopped := false
 	currentBlock := startBlock
-	blockCount := 0
-	txCount := 0
 	approvalHash := common.HexToHash("0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925")
 	cache := make(map[string]*rawdb.Spenders, 4_400_000)
 	for ; currentBlock <= endBlock && !stopped; /*&& currentBlock < 5000000*/ currentBlock++ {
-		_, err := cfg.blockReader.HeaderByNumber(ctx, tx, currentBlock)
-		if err != nil {
-			return err
-		}
-
-		// log.Info(fmt.Sprintf("[%s] Approvals index", s.LogPrefix()), "blockNumber", header.Number)
 		receipts := rawdb.ReadRawReceipts(tx, currentBlock)
 		if receipts == nil {
 			// Ignore on purpose, it could be a pruned receipt, which would constitute an
 			// error, but also an empty block, which should be the case
 			continue
 		}
-		// log.Info(fmt.Sprintf("[%s] Found receipt for block", s.LogPrefix()), "block", currentBlock)
-		found := false
+
 		for _, r := range receipts {
 			for _, l := range r.Logs {
 				// topics: [approvalHash, owner, spender]
@@ -110,8 +101,6 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 				}
 
 				// log.Info(fmt.Sprintf("[%s] Found approval", s.LogPrefix()), "block", currentBlock, "token", l.Address, "owner", l.Topics[1], "spender", l.Topics[2])
-				found = true
-				txCount++
 
 				// Locate existing approvals for token
 				ownerAddr := common.BytesToAddress(l.Topics[1].Bytes())
@@ -151,14 +140,7 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 					}
 					cache = make(map[string]*rawdb.Spenders, 4_400_000)
 				}
-				// log.Info(fmt.Sprintf("[%s] Saved", s.LogPrefix()), "buf", hexutil.Encode(buf))
-				// if err := approvalsIdx.Put(key, buf); err != nil {
-				// 	return err
-				// }
 			}
-		}
-		if found {
-			blockCount++
 		}
 
 		select {
@@ -225,7 +207,6 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 		return err
 	}
 
-	log.Info(fmt.Sprintf("[%s] Indexed approvals", s.LogPrefix()), "blockCount", blockCount, "txCount", txCount)
 	if currentBlock > endBlock {
 		currentBlock--
 	}
@@ -254,58 +235,6 @@ func flushCache(cache map[string]*rawdb.Spenders, logPrefix string, currentBlock
 	}
 	return nil
 }
-
-// func searchLastChunk(s *StageState, currentBlock uint64, minerIdx kv.Cursor, addr common.Address) ([]byte, *roaring64.Bitmap, error) {
-// 	chunkKey := dbutils.MinerIdxKey(addr)
-// 	k, v, err := minerIdx.SeekExact(chunkKey)
-// 	if err != nil {
-// 		return nil, nil, err
-// 	}
-
-// 	m := roaring64.New()
-// 	if k != nil {
-// 		reader := bytes.NewReader(v)
-// 		_, err := m.ReadFrom(reader)
-// 		if err != nil {
-// 			return nil, nil, err
-// 		}
-// 		// log.Info(fmt.Sprintf("[%s] Existing miner", s.LogPrefix()), "blockNumber", currentBlock, "chunkKey", hexutil.Bytes(chunkKey), "min", m.Minimum(), "max", m.Maximum(), "count", m.GetCardinality(), "size", m.GetSerializedSizeInBytes())
-// 	} else {
-// 		// log.Info(fmt.Sprintf("[%s] New miner", s.LogPrefix()), "blockNumber", currentBlock, "chunkKey", hexutil.Bytes(chunkKey))
-// 	}
-
-// 	return chunkKey, m, nil
-// }
-
-const MaxChunkSize = 4096
-
-// func addBlock2Chunk(m *roaring64.Bitmap, currentBlockNumber uint64, minerIdx kv.RwCursor, addr common.Address, s *StageState, chunkKey []byte) error {
-// 	m.Add(currentBlockNumber)
-// 	if m.GetSerializedSizeInBytes() > MaxChunkSize {
-// 		prev := bitmapdb.CutLeft64(m, MaxChunkSize)
-
-// 		// log.Info(fmt.Sprintf("[%s] Breaking up", s.LogPrefix()), "blockNumber", currentBlockNumber)
-// 		buf := bytes.NewBuffer(nil)
-// 		if _, err := prev.WriteTo(buf); err != nil {
-// 			return err
-// 		}
-// 		prevChunkKey := dbutils.MinerIdxPrevKey(addr, prev.Maximum())
-// 		if err := minerIdx.Put(prevChunkKey, buf.Bytes()); err != nil {
-// 			return err
-// 		}
-// 		// log.Info(fmt.Sprintf("[%s] Prev chunk", s.LogPrefix()), "blockNumber", currentBlockNumber, "chunkKey", hexutil.Bytes(prevChunkKey), "min", lft.Minimum(), "max", lft.Maximum(), "count", lft.GetCardinality(), "size", lft.GetSerializedSizeInBytes())
-// 	}
-
-// 	buf := bytes.NewBuffer(nil)
-// 	if _, err := m.WriteTo(buf); err != nil {
-// 		return err
-// 	}
-// 	if err := minerIdx.Put(chunkKey, buf.Bytes()); err != nil {
-// 		return err
-// 	}
-
-// 	return nil
-// }
 
 func UnwindOtsApprovalsIndex(u *UnwindState, cfg OtsApprovalsIndexCfg, tx kv.RwTx, ctx context.Context) error {
 	if !cfg.isEnabled {
