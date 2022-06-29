@@ -38,7 +38,7 @@ func (api *OtterscanAPIImpl) GetAllAllowances(ctx context.Context) ([]*Allowance
 		if err != nil {
 			return nil, err
 		}
-		log.Info("ots_getAllAllowances", "k", hexutil.Encode(k))
+		// log.Info("ots_getAllAllowances", "k", hexutil.Encode(k))
 
 		sp := rawdb.Spenders{}
 		if err := rlp.DecodeBytes(v, &sp); err != nil {
@@ -78,7 +78,7 @@ func (api *OtterscanAPIImpl) GetAllowances(ctx context.Context, owner common.Add
 		if !bytes.HasPrefix(k, owner.Bytes()) {
 			break
 		}
-		log.Info("ots_getAllowances", "k", hexutil.Encode(k))
+		log.Info("ots_getAllowances", "k", hexutil.Encode(k), "v", hexutil.Encode(v))
 
 		sp := rawdb.Spenders{}
 		if err := rlp.DecodeBytes(v, &sp); err != nil {

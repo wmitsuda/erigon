@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ledgerwatch/erigon-lib/etl"
 	"github.com/ledgerwatch/erigon-lib/kv"
 	"github.com/ledgerwatch/erigon/common"
 	"github.com/ledgerwatch/erigon/common/dbutils"
@@ -20,14 +21,18 @@ type OtsApprovalsIndexCfg struct {
 	db          kv.RwDB
 	chainConfig *params.ChainConfig
 	blockReader services.FullBlockReader
+	tmpdir      string
 	isEnabled   bool
 }
 
-func StageOtsApprovalsIndexCfg(db kv.RwDB, chainConfig *params.ChainConfig, blockReader services.FullBlockReader, isEnabled bool) OtsApprovalsIndexCfg {
+// const buffLimit = 256 * datasize.MB
+
+func StageOtsApprovalsIndexCfg(db kv.RwDB, chainConfig *params.ChainConfig, blockReader services.FullBlockReader, tmpdir string, isEnabled bool) OtsApprovalsIndexCfg {
 	return OtsApprovalsIndexCfg{
 		db:          db,
 		chainConfig: chainConfig,
 		blockReader: blockReader,
+		tmpdir:      tmpdir,
 		isEnabled:   isEnabled,
 	}
 }
@@ -70,20 +75,16 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 	}
 	defer approvalsIdx.Close()
 
-	// Setup test dump file
-	// TODO: remove this test
-	// f, err := os.OpenFile("approvals.csv", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-	// if err != nil {
-	// 	return err
-	// }
-	// defer f.Close()
+	collector := etl.NewCollector(s.LogPrefix(), cfg.tmpdir, etl.NewSortableBuffer(etl.BufferOptimalSize))
+	defer collector.Close()
 
 	stopped := false
 	currentBlock := startBlock
 	blockCount := 0
 	txCount := 0
 	approvalHash := common.HexToHash("0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925")
-	for ; currentBlock <= endBlock && !stopped && currentBlock < 5000000; currentBlock++ {
+	cache := make(map[string]*rawdb.Spenders, 4_400_000)
+	for ; currentBlock <= endBlock && !stopped; /*&& currentBlock < 5000000*/ currentBlock++ {
 		_, err := cfg.blockReader.HeaderByNumber(ctx, tx, currentBlock)
 		if err != nil {
 			return err
@@ -109,50 +110,51 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 				}
 
 				// log.Info(fmt.Sprintf("[%s] Found approval", s.LogPrefix()), "block", currentBlock, "token", l.Address, "owner", l.Topics[1], "spender", l.Topics[2])
-				// f.WriteString(fmt.Sprintf("%v;%v;%v\n", l.Address, l.Topics[1], l.Topics[2]))
 				found = true
 				txCount++
 
 				// Locate existing approvals for token
-				key := dbutils.ApprovalsIdxKey(common.BytesToAddress(l.Topics[1].Bytes()), l.Address)
-				_, v, err := approvalsIdx.SeekExact(key)
-				if err != nil {
-					return err
-				}
-				spenders := rawdb.Spenders{}
-				if v != nil {
-					err := rlp.DecodeBytes(v, &spenders)
-					if err != nil {
-						return err
-					}
-				}
+				ownerAddr := common.BytesToAddress(l.Topics[1].Bytes())
+				spenderAddr := common.BytesToAddress(l.Topics[2].Bytes())
 
-				var spenderFound *rawdb.Spender
-				for _, sp := range spenders.Spenders {
-					if sp.Spender == common.BytesToAddress(l.Topics[2].Bytes()) {
-						spenderFound = &sp
-						break
-					}
-				}
-				if spenderFound == nil {
-					// log.Info(fmt.Sprintf("[%s] New spender", s.LogPrefix()), "token", l.Address, "owner", common.BytesToAddress(l.Topics[1].Bytes()), "spender", common.BytesToAddress(l.Topics[2].Bytes()))
-					spenderFound = rawdb.NewSpender(common.BytesToAddress(l.Topics[2].Bytes()))
-					// TODO: must add block here?
-					spenderFound.Blocks = append(spenderFound.Blocks, currentBlock)
-					spenders.Spenders = append(spenders.Spenders, *spenderFound)
+				key := dbutils.ApprovalsIdxKey(ownerAddr, l.Address)
+				currentSpenders, ok := cache[string(key)]
+				if !ok {
+					spender := rawdb.NewSpender(spenderAddr)
+					spender.Blocks = append(spender.Blocks, currentBlock)
+					spenders := rawdb.Spenders{}
+					spenders.Spenders = append(spenders.Spenders, *spender)
+					cache[string(key)] = &spenders
+					// log.Info(fmt.Sprintf("[%s] New spender", s.LogPrefix()), "k", hexutil.Encode(key2[:]), "size", len(cache))
 				} else {
-					spenderFound.Blocks = append(spenderFound.Blocks, currentBlock)
+					var spenderFound *rawdb.Spender
+					for _, sp := range currentSpenders.Spenders {
+						if sp.Spender == spenderAddr {
+							spenderFound = &sp
+							break
+						}
+					}
+					if spenderFound == nil {
+						// log.Info(fmt.Sprintf("[%s] New spender", s.LogPrefix()), "token", l.Address, "owner", common.BytesToAddress(l.Topics[1].Bytes()), "spender", common.BytesToAddress(l.Topics[2].Bytes()))
+						spenderFound = rawdb.NewSpender(spenderAddr)
+						spenderFound.Blocks = append(spenderFound.Blocks, currentBlock)
+						currentSpenders.Spenders = append(currentSpenders.Spenders, *spenderFound)
+					} else {
+						spenderFound.Blocks = append(spenderFound.Blocks, currentBlock)
+					}
 				}
 
 				// Update or save spenders
-				buf, err := rlp.EncodeToBytes(spenders)
-				if err != nil {
-					return err
+				if len(cache) >= 4_400_000 {
+					if err := flushCache(cache, s.LogPrefix(), currentBlock, collector); err != nil {
+						return err
+					}
+					cache = make(map[string]*rawdb.Spenders, 4_400_000)
 				}
 				// log.Info(fmt.Sprintf("[%s] Saved", s.LogPrefix()), "buf", hexutil.Encode(buf))
-				if err := approvalsIdx.Put(key, buf); err != nil {
-					return err
-				}
+				// if err := approvalsIdx.Put(key, buf); err != nil {
+				// 	return err
+				// }
 			}
 		}
 		if found {
@@ -167,7 +169,60 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 				"block", currentBlock)
 		default:
 		}
+	}
 
+	if err := flushCache(cache, s.LogPrefix(), currentBlock, collector); err != nil {
+		return err
+	}
+	loadFunc := func(k, v []byte, table etl.CurrentTableReader, next etl.LoadNextFunc) error {
+		prev, err := table.Get(k)
+		if err != nil {
+			return err
+		}
+
+		existingSpenders := rawdb.Spenders{}
+		if prev != nil {
+			err := rlp.DecodeBytes(prev, &existingSpenders)
+			if err != nil {
+				return err
+			}
+		}
+
+		newSpenders := rawdb.Spenders{}
+		err = rlp.DecodeBytes(v, &newSpenders)
+		if err != nil {
+			return err
+		}
+
+		// Merge existing spenders from DB
+		for _, s := range newSpenders.Spenders {
+			var spenderFound *rawdb.Spender
+			for _, ps := range existingSpenders.Spenders {
+				if ps.Spender == s.Spender {
+					spenderFound = &ps
+					break
+				}
+			}
+			if spenderFound == nil {
+				existingSpenders.Spenders = append(existingSpenders.Spenders, s)
+			} else {
+				spenderFound.Blocks = append(spenderFound.Blocks, s.Blocks...)
+			}
+		}
+
+		// Update or save spenders
+		buf, err := rlp.EncodeToBytes(existingSpenders)
+		if err != nil {
+			return err
+		}
+		if err := next(k, k, buf); err != nil {
+			return err
+		}
+
+		return nil
+	}
+	if err := collector.Load(tx, kv.OtsApprovalsIndex, loadFunc, etl.TransformArgs{Quit: ctx.Done()}); err != nil {
+		return err
 	}
 
 	log.Info(fmt.Sprintf("[%s] Indexed approvals", s.LogPrefix()), "blockCount", blockCount, "txCount", txCount)
@@ -181,6 +236,21 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 		if err := tx.Commit(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func flushCache(cache map[string]*rawdb.Spenders, logPrefix string, currentBlock uint64, collector *etl.Collector) error {
+	log.Info(fmt.Sprintf("[%s] Flushing spenders", logPrefix), "block", currentBlock)
+	for k, v := range cache {
+		buf, err := rlp.EncodeToBytes(v)
+		if err != nil {
+			return err
+		}
+		if err := collector.Collect([]byte(k), buf); err != nil {
+			return err
+		}
+		// log.Info(fmt.Sprintf("[%s] Collected", s.LogPrefix()), "k", hexutil.Encode(k[:]), "v", hexutil.Encode(buf))
 	}
 	return nil
 }

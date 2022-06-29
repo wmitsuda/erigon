@@ -403,7 +403,7 @@ func NewStagedSync(
 			stagedsync.StageLogIndexCfg(db, cfg.Prune, tmpdir),
 			stagedsync.StageCallTracesCfg(db, cfg.Prune, 0, tmpdir),
 			stagedsync.StageTxLookupCfg(db, cfg.Prune, tmpdir, snapshots, isBor),
-			stagedsync.StageOtsApprovalsIndexCfg(db, controlServer.ChainConfig, blockReader, cfg.OtsIndexApprovals),
+			stagedsync.StageOtsApprovalsIndexCfg(db, controlServer.ChainConfig, blockReader, tmpdir, cfg.OtsIndexApprovals),
 			stagedsync.StageFinishCfg(db, tmpdir, logger, headCh), runInTestMode),
 		stagedsync.DefaultUnwindOrder,
 		stagedsync.DefaultPruneOrder,
