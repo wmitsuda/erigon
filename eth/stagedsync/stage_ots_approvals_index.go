@@ -250,6 +250,10 @@ func UnwindOtsApprovalsIndex(u *UnwindState, cfg OtsApprovalsIndexCfg, tx kv.RwT
 		defer tx.Rollback()
 	}
 
+	// TODO: fix EROR[06-29|23:55:47.639] Staged Sync
+	// err="runtime error: invalid memory address or nil pointer dereference, trace:
+	// [stageloop.go:116 panic.go:844 panic.go:220 signal_unix.go:818 stages.go:83 stage.go:97 stage_ots_approvals_index.go:253
+	// default_stages.go:222 sync.go:359 sync.go:203 stageloop.go:150 stageloop.go:53 asm_amd64.s:1571]"
 	if err := u.Done(tx); err != nil {
 		return fmt.Errorf(" reset: %w", err)
 	}
