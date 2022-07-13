@@ -243,7 +243,8 @@ func UnwindOtsApprovalsIndex(u *UnwindState, cfg OtsApprovalsIndexCfg, tx kv.RwT
 
 	useExternalTx := tx != nil
 	if !useExternalTx {
-		tx, err := cfg.db.BeginRw(ctx)
+		var err error
+		tx, err = cfg.db.BeginRw(ctx)
 		if err != nil {
 			return err
 		}
