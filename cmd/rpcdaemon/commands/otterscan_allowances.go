@@ -114,7 +114,8 @@ func (api *OtterscanAPIImpl) GetApprovals(ctx context.Context, owner common.Addr
 	defer approvalsIdx.Close()
 
 	var approvals []*Approval
-	for k, v, err := approvalsIdx.Seek(dbutils.ApprovalsIdxKey(owner, common.HexToAddress("0x0000000000000000000000000000000000000000"))); k != nil; k, v, err = approvalsIdx.Next() {
+	key := dbutils.ApprovalsIdxKey(owner, common.HexToAddress("0x0000000000000000000000000000000000000000"))
+	for k, v, err := approvalsIdx.Seek(key); k != nil; k, v, err = approvalsIdx.Next() {
 		if err != nil {
 			return nil, err
 		}
