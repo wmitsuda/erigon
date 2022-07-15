@@ -113,7 +113,7 @@ func (api *OtterscanAPIImpl) GetApprovals(ctx context.Context, owner common.Addr
 	}
 	defer approvalsIdx.Close()
 
-	approvals := make([]*Approval, 1)
+	var approvals []*Approval
 	for k, v, err := approvalsIdx.Seek(dbutils.ApprovalsIdxKey(owner, common.HexToAddress("0x0000000000000000000000000000000000000000"))); k != nil; k, v, err = approvalsIdx.Next() {
 		if err != nil {
 			return nil, err
@@ -124,6 +124,7 @@ func (api *OtterscanAPIImpl) GetApprovals(ctx context.Context, owner common.Addr
 
 		token := common.BytesToAddress(k[common.AddressLength:])
 
+		// log.Info("ots_getApprovals", "k", hexutil.Encode(k), "v", hexutil.Encode(v))
 		sp := rawdb.Spenders{}
 		if err := rlp.DecodeBytes(v, &sp); err != nil {
 			return nil, err
