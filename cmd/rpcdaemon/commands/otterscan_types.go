@@ -42,7 +42,10 @@ const MaxBlockNum = ^uint64(0)
 func newCallChunkLocator(cursor kv.Cursor, addr common.Address, navigateForward bool) ChunkLocator {
 	return func(minBlock uint64) (ChunkProvider, bool, error) {
 		searchKey := callIndexKey(addr, minBlock)
-		_, _, err := cursor.Seek(searchKey)
+		k, _, err := cursor.Seek(searchKey)
+		if k == nil {
+			return nil, false, nil
+		}
 		if err != nil {
 			return nil, false, err
 		}
