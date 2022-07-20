@@ -632,8 +632,8 @@ github.com/valyala/histogram v1.2.0 h1:wyYGAZZt3CpwUiIb9AU/Zbllg1llXyrtApRS815OL
 github.com/valyala/histogram v1.2.0/go.mod h1:Hb4kBwb4UxsaNbbbh+RRz8ZR6pdodR57tzWUS3BUzXY=
 github.com/willf/bitset v1.1.9/go.mod h1:RjeCKbqT1RxIR/KWY6phxZiaY1IyutSBfGjNPySAYV4=
 github.com/willf/bitset v1.1.10/go.mod h1:RjeCKbqT1RxIR/KWY6phxZiaY1IyutSBfGjNPySAYV4=
-github.com/wmitsuda/erigon-lib v0.0.0-20220713203455-820a62acaaea h1:7bNTdejAJXTW6BI8HtZ3tneOBFaImyiEcozO/uw66iw=
-github.com/wmitsuda/erigon-lib v0.0.0-20220713203455-820a62acaaea/go.mod h1:bttvdtZXjh803u/CeMerKYnWvVvXTICWSfpcMeQNtmc=
+github.com/wmitsuda/erigon-lib v0.0.0-20220718231530-1a9bd8a9d839 h1:xdt09w5lZs9vMq3mVScaXIBkBTQFxqp+qFnbfKPb7lk=
+github.com/wmitsuda/erigon-lib v0.0.0-20220718231530-1a9bd8a9d839/go.mod h1:bttvdtZXjh803u/CeMerKYnWvVvXTICWSfpcMeQNtmc=
 github.com/xiang90/probing v0.0.0-20190116061207-43a291ad63a2/go.mod h1:UETIi67q53MR2AWcXfiuqkDkRtnGDLqkBTpCHuJHxtU=
 github.com/xsleonard/go-merkle v1.1.0 h1:fHe1fuhJjGH22ZzVTAH0jqHLhTGhOq3wQjJN+8P0jQg=
 github.com/xsleonard/go-merkle v1.1.0/go.mod h1:cW4z+UZ/4f2n9IJgIiyDCdYguchoDyDAPmpuOWGxdGg=

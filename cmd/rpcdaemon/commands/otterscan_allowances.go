@@ -67,14 +67,14 @@ func (api *OtterscanAPIImpl) GetAllowances(ctx context.Context, owner common.Add
 	}
 	defer tx.Rollback()
 
-	approvalsIdx, err := tx.Cursor(kv.OtsApprovalsIndex)
+	approvalsIdx, err := tx.CursorDupSort(kv.OtsApprovalsIndex)
 	if err != nil {
 		return nil, err
 	}
 	defer approvalsIdx.Close()
 
 	allowances := make([]*Allowance, 1)
-	for k, v, err := approvalsIdx.Seek(dbutils.ApprovalsIdxKey(owner, common.HexToAddress("0x0000000000000000000000000000000000000000"))); k != nil; k, v, err = approvalsIdx.Next() {
+	for k, v, err := approvalsIdx.SeekBothExact(dbutils.ApprovalsIdxKey(owner), nil); k != nil; k, v, err = approvalsIdx.NextDup() {
 		if err != nil {
 			return nil, err
 		}
@@ -107,15 +107,15 @@ func (api *OtterscanAPIImpl) GetApprovals(ctx context.Context, owner common.Addr
 	}
 	defer tx.Rollback()
 
-	approvalsIdx, err := tx.Cursor(kv.OtsApprovalsIndex)
+	approvalsIdx, err := tx.CursorDupSort(kv.OtsApprovalsIndex)
 	if err != nil {
 		return nil, err
 	}
 	defer approvalsIdx.Close()
 
 	var approvals []*Approval
-	key := dbutils.ApprovalsIdxKey(owner, common.HexToAddress("0x0000000000000000000000000000000000000000"))
-	for k, v, err := approvalsIdx.Seek(key); k != nil; k, v, err = approvalsIdx.Next() {
+	key := dbutils.ApprovalsIdxKey(owner)
+	for k, v, err := approvalsIdx.SeekBothExact(key, nil); k != nil; k, v, err = approvalsIdx.NextDup() {
 		if err != nil {
 			return nil, err
 		}

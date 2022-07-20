@@ -162,4 +162,4 @@ require (
 	modernc.org/token v1.0.0 // indirect
 )
 
-replace github.com/ledgerwatch/erigon-lib v0.0.0-20220707065230-95e361fa1ed7 => github.com/wmitsuda/erigon-lib v0.0.0-20220713203455-820a62acaaea
+replace github.com/ledgerwatch/erigon-lib v0.0.0-20220707065230-95e361fa1ed7 => github.com/wmitsuda/erigon-lib v0.0.0-20220718231530-1a9bd8a9d839

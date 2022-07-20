@@ -1,11 +1,11 @@
 package stagedsync
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"time"
 
-	"github.com/ledgerwatch/erigon-lib/etl"
 	"github.com/ledgerwatch/erigon-lib/kv"
 	"github.com/ledgerwatch/erigon/common"
 	"github.com/ledgerwatch/erigon/common/dbutils"
@@ -69,19 +69,15 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 	defer logEvery.Stop()
 
 	// Setup approvals table
-	approvalsIdx, err := tx.RwCursor(kv.OtsApprovalsIndex)
+	approvalsIdx, err := tx.RwCursorDupSort(kv.OtsApprovalsIndex)
 	if err != nil {
 		return err
 	}
 	defer approvalsIdx.Close()
 
-	collector := etl.NewCollector(s.LogPrefix(), cfg.tmpdir, etl.NewSortableBuffer(etl.BufferOptimalSize))
-	defer collector.Close()
-
 	stopped := false
 	currentBlock := startBlock
 	approvalHash := common.HexToHash("0x8c5be1e5ebec7d5bd14f71427d1e84f3dd0314c0f7b2291e5b200ac8c7c3b925")
-	cache := make(map[string]*rawdb.Spenders, 4_400_000)
 	for ; currentBlock <= endBlock && !stopped; /*&& currentBlock < 5000000*/ currentBlock++ {
 		receipts := rawdb.ReadRawReceipts(tx, currentBlock)
 		if receipts == nil {
@@ -104,41 +100,66 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 
 				// Locate existing approvals for token
 				ownerAddr := common.BytesToAddress(l.Topics[1].Bytes())
+				tokenAddr := l.Address
 				spenderAddr := common.BytesToAddress(l.Topics[2].Bytes())
 
-				key := dbutils.ApprovalsIdxKey(ownerAddr, l.Address)
-				currentSpenders, ok := cache[string(key)]
-				if !ok {
+				key := dbutils.ApprovalsIdxKey(ownerAddr)
+				k, v, err := approvalsIdx.SeekBothExact(key, tokenAddr[:])
+				if err != nil {
+					return err
+				}
+				if !bytes.Equal(k, key) || !bytes.HasPrefix(v, tokenAddr[:]) {
 					spender := rawdb.NewSpender(spenderAddr)
 					spender.Blocks = append(spender.Blocks, currentBlock)
 					spenders := rawdb.Spenders{}
 					spenders.Spenders = append(spenders.Spenders, *spender)
-					cache[string(key)] = &spenders
+
+					buf, err := rlp.EncodeToBytes(&spenders)
+					if err != nil {
+						return err
+					}
+
+					buf2 := make([]byte, common.AddressLength+len(buf))
+					copy(buf2, tokenAddr[:])
+					copy(buf2[common.AddressLength:], buf)
+					approvalsIdx.AppendDup(key, buf2)
 					// log.Info(fmt.Sprintf("[%s] New spender", s.LogPrefix()), "k", hexutil.Encode(key2[:]), "size", len(cache))
 				} else {
+					existingSpenders := rawdb.Spenders{}
+					err := rlp.DecodeBytes(v[common.AddressLength:], &existingSpenders)
+					if err != nil {
+						return err
+					}
+
+					// Merge existing spenders from DB
 					var spenderFound *rawdb.Spender
-					for _, sp := range currentSpenders.Spenders {
-						if sp.Spender == spenderAddr {
-							spenderFound = &sp
+					for _, ps := range existingSpenders.Spenders {
+						if ps.Spender == spenderAddr {
+							spenderFound = &ps
 							break
 						}
 					}
 					if spenderFound == nil {
-						// log.Info(fmt.Sprintf("[%s] New spender", s.LogPrefix()), "token", l.Address, "owner", common.BytesToAddress(l.Topics[1].Bytes()), "spender", common.BytesToAddress(l.Topics[2].Bytes()))
-						spenderFound = rawdb.NewSpender(spenderAddr)
-						spenderFound.Blocks = append(spenderFound.Blocks, currentBlock)
-						currentSpenders.Spenders = append(currentSpenders.Spenders, *spenderFound)
+						existingSpenders.Spenders = append(existingSpenders.Spenders, rawdb.Spender{Spender: spenderAddr, Blocks: []uint64{currentBlock}})
 					} else {
 						spenderFound.Blocks = append(spenderFound.Blocks, currentBlock)
 					}
-				}
 
-				// Update or save spenders
-				if len(cache) >= 4_400_000 {
-					if err := flushCache(cache, s.LogPrefix(), currentBlock, collector); err != nil {
+					// Update or save spenders
+					err = approvalsIdx.DeleteCurrent()
+					if err != nil {
 						return err
 					}
-					cache = make(map[string]*rawdb.Spenders, 4_400_000)
+
+					buf, err := rlp.EncodeToBytes(&existingSpenders)
+					if err != nil {
+						return err
+					}
+
+					buf2 := make([]byte, common.AddressLength+len(buf))
+					copy(buf2, tokenAddr[:])
+					copy(buf2[common.AddressLength:], buf)
+					approvalsIdx.AppendDup(key, buf2)
 				}
 			}
 		}
@@ -153,59 +174,56 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 		}
 	}
 
-	if err := flushCache(cache, s.LogPrefix(), currentBlock, collector); err != nil {
-		return err
-	}
-	loadFunc := func(k, v []byte, table etl.CurrentTableReader, next etl.LoadNextFunc) error {
-		prev, err := table.Get(k)
-		if err != nil {
-			return err
-		}
+	// loadFunc := func(k, v []byte, table etl.CurrentTableReader, next etl.LoadNextFunc) error {
+	// 	prev, err := table.Get(k)
+	// 	if err != nil {
+	// 		return err
+	// 	}
 
-		existingSpenders := rawdb.Spenders{}
-		if prev != nil {
-			err := rlp.DecodeBytes(prev, &existingSpenders)
-			if err != nil {
-				return err
-			}
-		}
+	// 	existingSpenders := rawdb.Spenders{}
+	// 	if prev != nil {
+	// 		err := rlp.DecodeBytes(prev, &existingSpenders)
+	// 		if err != nil {
+	// 			return err
+	// 		}
+	// 	}
 
-		newSpenders := rawdb.Spenders{}
-		err = rlp.DecodeBytes(v, &newSpenders)
-		if err != nil {
-			return err
-		}
+	// 	newSpenders := rawdb.Spenders{}
+	// 	err = rlp.DecodeBytes(v, &newSpenders)
+	// 	if err != nil {
+	// 		return err
+	// 	}
 
-		// Merge existing spenders from DB
-		for _, s := range newSpenders.Spenders {
-			var spenderFound *rawdb.Spender
-			for _, ps := range existingSpenders.Spenders {
-				if ps.Spender == s.Spender {
-					spenderFound = &ps
-					break
-				}
-			}
-			if spenderFound == nil {
-				existingSpenders.Spenders = append(existingSpenders.Spenders, s)
-			} else {
-				spenderFound.Blocks = append(spenderFound.Blocks, s.Blocks...)
-			}
-		}
+	// 	// Merge existing spenders from DB
+	// 	for _, s := range newSpenders.Spenders {
+	// 		var spenderFound *rawdb.Spender
+	// 		for _, ps := range existingSpenders.Spenders {
+	// 			if ps.Spender == s.Spender {
+	// 				spenderFound = &ps
+	// 				break
+	// 			}
+	// 		}
+	// 		if spenderFound == nil {
+	// 			existingSpenders.Spenders = append(existingSpenders.Spenders, s)
+	// 		} else {
+	// 			spenderFound.Blocks = append(spenderFound.Blocks, s.Blocks...)
+	// 		}
+	// 	}
 
-		// Update or save spenders
-		buf, err := rlp.EncodeToBytes(existingSpenders)
-		if err != nil {
-			return err
-		}
-		if err := next(k, k, buf); err != nil {
-			return err
-		}
+	// 	// Update or save spenders
+	// 	buf, err := rlp.EncodeToBytes(existingSpenders)
+	// 	if err != nil {
+	// 		return err
+	// 	}
+	// 	if err := next(k, k, buf); err != nil {
+	// 		return err
+	// 	}
 
-		return nil
-	}
-	if err := collector.Load(tx, kv.OtsApprovalsIndex, loadFunc, etl.TransformArgs{Quit: ctx.Done()}); err != nil {
-		return err
-	}
+	// 	return nil
+	// }
+	// if err := collector.Load(tx, kv.OtsApprovalsIndex, loadFunc, etl.TransformArgs{Quit: ctx.Done()}); err != nil {
+	// 	return err
+	// }
 
 	if currentBlock > endBlock {
 		currentBlock--
@@ -221,20 +239,25 @@ func SpawnStageOtsApprovalsIndex(cfg OtsApprovalsIndexCfg, s *StageState, tx kv.
 	return nil
 }
 
-func flushCache(cache map[string]*rawdb.Spenders, logPrefix string, currentBlock uint64, collector *etl.Collector) error {
-	log.Info(fmt.Sprintf("[%s] Flushing spenders", logPrefix), "block", currentBlock)
-	for k, v := range cache {
-		buf, err := rlp.EncodeToBytes(v)
-		if err != nil {
-			return err
-		}
-		if err := collector.Collect([]byte(k), buf); err != nil {
-			return err
-		}
-		// log.Info(fmt.Sprintf("[%s] Collected", s.LogPrefix()), "k", hexutil.Encode(k[:]), "v", hexutil.Encode(buf))
-	}
-	return nil
-}
+// func flushCache(cache map[string]*rawdb.Spenders, logPrefix string, currentBlock uint64, collector *etl.Collector) error {
+// 	log.Info(fmt.Sprintf("[%s] Flushing spenders", logPrefix), "block", currentBlock)
+// 	for k, v := range cache {
+// 		buf, err := rlp.EncodeToBytes(v)
+// 		if err != nil {
+// 			return err
+// 		}
+
+// 		buf2 := make([]byte, common.AddressLength+len(buf))
+// 		copy(buf2, []byte(k)[common.AddressLength:])
+// 		copy(buf2[common.AddressLength:], buf)
+
+// 		if err := collector.Collect([]byte(k)[:common.AddressLength], buf2); err != nil {
+// 			return err
+// 		}
+// 		// log.Info(fmt.Sprintf("[%s] Collected", s.LogPrefix()), "k", hexutil.Encode(k[:]), "v", hexutil.Encode(buf))
+// 	}
+// 	return nil
+// }
 
 func UnwindOtsApprovalsIndex(u *UnwindState, cfg OtsApprovalsIndexCfg, tx kv.RwTx, ctx context.Context) error {
 	if !cfg.isEnabled {

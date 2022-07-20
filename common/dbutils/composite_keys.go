@@ -154,9 +154,8 @@ func CompositeKeySuffix(key []byte, timestamp uint64) (composite, encodedTS []by
 }
 
 // Otterscan DB
-func ApprovalsIdxKey(addr common.Address, token common.Address) []byte {
-	key := make([]byte, common.AddressLength*2)
+func ApprovalsIdxKey(addr common.Address) []byte {
+	key := make([]byte, common.AddressLength)
 	copy(key, addr.Bytes())
-	copy(key[common.AddressLength:], token.Bytes())
 	return key
 }
