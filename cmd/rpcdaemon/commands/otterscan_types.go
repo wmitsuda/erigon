@@ -56,6 +56,7 @@ func newCallChunkLocator(cursor kv.Cursor, addr common.Address, navigateForward 
 func newCallChunkProvider(cursor kv.Cursor, addr common.Address, navigateForward bool) ChunkProvider {
 	first := true
 	var err error
+	// TODO: is this flag really used?
 	eof := false
 	return func() ([]byte, bool, error) {
 		if err != nil {
@@ -79,7 +80,8 @@ func newCallChunkProvider(cursor kv.Cursor, addr common.Address, navigateForward
 
 		if err != nil {
 			eof = true
-			return nil, false, err
+			// Silence err; consider it EOF; handling empty chain case
+			return nil, false, nil
 		}
 		if !bytes.HasPrefix(k, addr.Bytes()) {
 			eof = true
