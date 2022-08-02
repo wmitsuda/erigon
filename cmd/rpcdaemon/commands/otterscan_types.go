@@ -83,8 +83,7 @@ func newCallChunkProvider(cursor kv.Cursor, addr common.Address, navigateForward
 
 		if err != nil {
 			eof = true
-			// Silence err; consider it EOF; handling empty chain case
-			return nil, false, nil
+			return nil, false, err
 		}
 		if !bytes.HasPrefix(k, addr.Bytes()) {
 			eof = true
