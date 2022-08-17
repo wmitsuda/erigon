@@ -367,6 +367,9 @@ func (api *OtterscanAPIImpl) delegateGetBlockByNumber(tx kv.Tx, b *types.Block, 
 		return nil, err
 	}
 	response, err := ethapi.RPCMarshalBlock(b, inclTx, inclTx)
+	if !inclTx {
+		delete(response, "transactions") // workaround for https://github.com/ledgerwatch/erigon/issues/4989#issuecomment-1218415666
+	}
 	response["totalDifficulty"] = (*hexutil.Big)(td)
 	response["transactionCount"] = b.Transactions().Len()
 
