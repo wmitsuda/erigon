@@ -1,3 +1,13 @@
+# UPDATE: November, 2022
+
+This repo originally hosted the our patched version of Erigon containing the Otterscan API implementation.
+
+Those modifications were upstreamed via PR https://github.com/ledgerwatch/erigon/pull/5945 and our work will continue directly on Erigon's main repo. You should get all Otterscan API out-of-box starting from Erigon 2.29.
+
+The rest of this document contains the original patched-Erigon announcement + original Erigon README content.
+
+---
+
 # Otterscan JSON-RPC API Extensions for Erigon
 
 This is a fork of Erigon containing JSON-RPC API method extensions used by [Otterscan](https://github.com/wmitsuda/otterscan).
