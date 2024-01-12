@@ -10,7 +10,6 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/holiman/uint256"
-	"github.com/ledgerwatch/log/v3"
 
 	"github.com/ledgerwatch/erigon-lib/chain"
 	"github.com/ledgerwatch/erigon-lib/common"
@@ -28,6 +27,7 @@ import (
 	"github.com/ledgerwatch/erigon/turbo/adapter/ethapi"
 	"github.com/ledgerwatch/erigon/turbo/rpchelper"
 	"github.com/ledgerwatch/erigon/turbo/transactions"
+	"github.com/ledgerwatch/log/v3"
 )
 
 // API_LEVEL Must be incremented every time new additions are made
